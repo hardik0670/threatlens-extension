@@ -949,6 +949,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateScanModeLabel();
   sellerInsightsList.addEventListener("click", handleSellerListAction);
 
+  if (headerMenuPanel) {
+    headerMenuPanel.addEventListener("click", e => {
+      const emailItem = e.target.closest("[data-email]");
+      if (emailItem) {
+        e.preventDefault();
+        const email = emailItem.dataset.email;
+        emailItem.textContent = email;
+        navigator.clipboard.writeText(email).catch(() => {});
+        chrome.tabs.create({ url: `mailto:${email}` });
+      }
+    });
+  }
+
   // Cursor glow tracking
   const cursorGlow = document.getElementById("cursor-glow");
   const containerEl = document.querySelector(".container");
