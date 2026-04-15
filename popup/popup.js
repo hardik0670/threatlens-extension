@@ -27,8 +27,8 @@ const sellerInsightsBtn = document.getElementById("seller-insights-btn");
 const sellerInsightsPanel = document.getElementById("seller-insights-panel");
 const sellerInsightsList = document.getElementById("seller-insights-list");
 const sellerFavicon = document.getElementById("seller-favicon");
-const footerSupportToggle = document.getElementById("footer-support-toggle");
-const footerSupportPanel = document.getElementById("footer-support-panel");
+const headerMenuBtn = document.getElementById("header-menu-btn");
+const headerMenuPanel = document.getElementById("header-menu-panel");
 const themeToggle = document.getElementById("theme-toggle");
 
 // Updated selector for the new HTML structure: <span class="btn-label">
@@ -519,9 +519,17 @@ function collapseSellerInsights() {
   sellerInsightsPanel.classList.add("hidden");
 }
 
-function toggleFooterSupport() {
-  const isHidden = footerSupportPanel.classList.toggle("hidden");
-  footerSupportToggle.setAttribute("aria-expanded", String(!isHidden));
+function toggleHeaderMenu(event) {
+  event.stopPropagation();
+  const isHidden = headerMenuPanel.classList.toggle("hidden");
+  headerMenuBtn.setAttribute("aria-expanded", String(!isHidden));
+}
+
+function closeHeaderMenu(event) {
+  if (headerMenuPanel && !headerMenuPanel.classList.contains("hidden") && !headerMenuBtn.contains(event.target) && !headerMenuPanel.contains(event.target)) {
+    headerMenuPanel.classList.add("hidden");
+    headerMenuBtn.setAttribute("aria-expanded", "false");
+  }
 }
 
 function applyAnalysis(data, scannedUrl, options = {}) {
@@ -935,7 +943,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   scanBtn.addEventListener("click", runScan);
   sellerInsightsBtn.addEventListener("click", toggleSellerInsights);
   if (aiSummaryBtn) aiSummaryBtn.addEventListener("click", toggleAiSummary);
-  footerSupportToggle.addEventListener("click", toggleFooterSupport);
+  if (headerMenuBtn) headerMenuBtn.addEventListener("click", toggleHeaderMenu);
+  document.addEventListener("click", closeHeaderMenu);
   themeToggle.addEventListener("click", toggleTheme);
   updateScanModeLabel();
   sellerInsightsList.addEventListener("click", handleSellerListAction);

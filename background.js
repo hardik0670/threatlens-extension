@@ -1,6 +1,6 @@
 const USE_LOCAL_BACKEND = false;
-const API_BASE = USE_LOCAL_BACKEND 
-    ? "http://127.0.0.1:5000" 
+const API_BASE = USE_LOCAL_BACKEND
+    ? "http://127.0.0.1:5000"
     : "https://threatlens-api.vercel.app";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -17,7 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "SCAN_URL") {
         // Strip URL to origin only (same as popup) to avoid ML path-bias
         let scanUrl = message.url;
-        try { scanUrl = new URL(message.url).origin; } catch {}
+        try { scanUrl = new URL(message.url).origin; } catch { }
 
         chrome.storage.local.get("trustSignals", (result) => {
             fetch(`${API_BASE}/predict`, {
