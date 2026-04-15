@@ -8,7 +8,8 @@
     "scripting",
     "tabs",
     "storage"
-  ],
+  ]
+  "homepage_url": "https://threatlens-site-sooty.vercel.app/privacy/",
   "host_permissions": [
     "http://localhost:5000/*",
     "https://threatlens-self.vercel.app/*"
@@ -42,3 +43,5 @@
     }
   ]
 }
+
+
