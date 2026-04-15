@@ -216,6 +216,14 @@ body[data-theme="dark"] {
     transition: background var(--t-fast) ease, color var(--t-fast) ease;
 }
 
+.header-menu-btn svg {
+    transition: transform var(--t-base) var(--ease-spring);
+}
+
+.header-menu-btn[aria-expanded="true"] svg {
+    transform: rotate(90deg);
+}
+
 .header-menu-btn:hover {
     background: var(--bg-surface-raised);
     color: var(--color-ocean);
@@ -284,6 +292,11 @@ body[data-theme="dark"] .header-menu-panel {
     flex-direction: column;
     background: rgba(0, 0, 0, 0.02);
     overflow: hidden;
+    max-height: 120px;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: max-height var(--t-base) var(--ease-spring), opacity var(--t-base) ease, visibility var(--t-base);
 }
 
 body[data-theme="dark"] .header-submenu {
@@ -291,7 +304,10 @@ body[data-theme="dark"] .header-submenu {
 }
 
 .header-submenu.hidden {
-    display: none;
+    max-height: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .submenu-item {
