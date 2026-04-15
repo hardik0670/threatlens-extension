@@ -29,6 +29,8 @@ const sellerInsightsList = document.getElementById("seller-insights-list");
 const sellerFavicon = document.getElementById("seller-favicon");
 const headerMenuBtn = document.getElementById("header-menu-btn");
 const headerMenuPanel = document.getElementById("header-menu-panel");
+const supportMenuBtn = document.getElementById("support-menu-btn");
+const supportSubmenu = document.getElementById("support-submenu");
 const themeToggle = document.getElementById("theme-toggle");
 
 // Updated selector for the new HTML structure: <span class="btn-label">
@@ -951,6 +953,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (headerMenuPanel) {
     headerMenuPanel.addEventListener("click", e => {
+      const supportBtnClick = e.target.closest("#support-menu-btn");
+      if (supportBtnClick) {
+        e.preventDefault();
+        e.stopPropagation();
+        const isHidden = supportSubmenu.classList.toggle("hidden");
+        supportMenuBtn.setAttribute("aria-expanded", String(!isHidden));
+        return;
+      }
+
       const emailItem = e.target.closest("[data-email]");
       if (emailItem) {
         e.preventDefault();

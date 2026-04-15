@@ -61,11 +61,25 @@
                         </svg>
                     </button>
                     <div id="header-menu-panel" class="header-menu-panel hidden" role="menu">
-                        <div class="header-menu-title">Support & Contact</div>
-                        <a href="mailto:khatrihardik148@gmail.com" class="header-menu-item" role="menuitem" data-email="khatrihardik148@gmail.com">Contact Hardik</a>
-                        <a href="mailto:sameersiddharth2211@gmail.com" class="header-menu-item" role="menuitem" data-email="sameersiddharth2211@gmail.com">Contact Sameer</a>
-                        <div class="header-menu-divider"></div>
-                        <a href="https://threatlens-site-sooty.vercel.app/privacy/" target="_blank" rel="noopener noreferrer" class="header-menu-item" role="menuitem">Privacy Policy</a>
+                        <button class="header-menu-item" id="support-menu-btn" role="menuitem" aria-expanded="false" aria-controls="support-submenu">
+                            <svg class="item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                            <span class="item-text" style="flex: 1;">Support & Contact</span>
+                            <svg class="chevron-icon" id="support-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        </button>
+                        <div id="support-submenu" class="header-submenu hidden">
+                            <a href="mailto:khatrihardik148@gmail.com" class="header-menu-item submenu-item" role="menuitem" data-email="khatrihardik148@gmail.com">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                                Contact Hardik
+                            </a>
+                            <a href="mailto:sameersiddharth2211@gmail.com" class="header-menu-item submenu-item" role="menuitem" data-email="sameersiddharth2211@gmail.com">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                                Contact Sameer
+                            </a>
+                        </div>
+                        <a href="https://threatlens-site-sooty.vercel.app/privacy/" target="_blank" rel="noopener noreferrer" class="header-menu-item" role="menuitem">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                            Privacy Policy
+                        </a>
                     </div>
                 </div>
             </div>

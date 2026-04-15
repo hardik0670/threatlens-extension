@@ -272,6 +272,40 @@ body[data-theme="dark"] .header-menu-panel {
     text-decoration: none;
     transition: background var(--t-fast) ease;
     cursor: pointer;
+    border: none;
+    background: transparent;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+}
+
+.header-submenu {
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.02);
+    overflow: hidden;
+}
+
+body[data-theme="dark"] .header-submenu {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.header-submenu.hidden {
+    display: none;
+}
+
+.submenu-item {
+    padding-left: var(--sp-5);
+    font-size: var(--text-xs);
+}
+
+.chevron-icon {
+    transition: transform var(--t-fast) ease;
+    margin-left: auto;
+}
+
+#support-menu-btn[aria-expanded="true"] .chevron-icon {
+    transform: rotate(180deg);
 }
 
 .header-menu-item svg {
