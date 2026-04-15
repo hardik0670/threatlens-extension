@@ -966,9 +966,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (emailItem) {
         e.preventDefault();
         const email = emailItem.dataset.email;
-        emailItem.textContent = email;
         navigator.clipboard.writeText(email).catch(() => {});
-        chrome.tabs.create({ url: `mailto:${email}` });
+        chrome.tabs.create({ url: `https://mail.google.com/mail/?view=cm&fs=1&to=${email}` });
       }
     });
   }
