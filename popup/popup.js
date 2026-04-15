@@ -556,11 +556,7 @@ function applyAnalysis(data, scannedUrl, options = {}) {
   // Keep AI summary section closed; store the text for lazy reveal
   collapseAiSummary();
   explanationText.textContent = "";
-  if (state.pendingExplanation) {
-    threatExpl.classList.remove("hidden");
-  } else {
-    threatExpl.classList.add("hidden");
-  }
+  threatExpl.classList.remove("hidden");
 
   if (data.contact_signals?.uses_ecommerce) {
     sellerInsightsSection.classList.remove("hidden");
@@ -832,9 +828,9 @@ async function toggleSellerInsights() {
       setVerdict(response.data.analysis.verdict ?? response.data.analysis.level, threat);
       renderIndicators(state.lastScannedUrl, response.data.analysis, threat);
       renderChecklist(response.data.analysis.fired_rules || []);
-      state.pendingExplanation = response.data.analysis.explanation || "";
+      state.pendingExplanation = "";
       state.aiSummaryRevealed = false;
-      if (state.pendingExplanation) threatExpl.classList.remove("hidden");
+      threatExpl.classList.remove("hidden");
     }
     renderSellerInsights(response.data);
     const contact = (response.data.analysis || state.lastAnalysis)?.contact_signals || {};
@@ -879,8 +875,7 @@ function typeText(element, text, speed = 12) {
   }, speed);
 }
 
-function toggleAiSummary() {
-  if (!state.pendingExplanation) return;
+async function toggleAiSummary() {
   const willOpen = aiSummaryPanel.classList.contains("hidden");
   if (!willOpen) {
     collapseAiSummary();
@@ -893,9 +888,33 @@ function toggleAiSummary() {
   aiSummaryPanel.classList.remove("revealed");
   requestAnimationFrame(() => aiSummaryPanel.classList.add("revealed"));
 
-  if (!state.aiSummaryRevealed) {
+  if (state.aiSummaryRevealed && state.pendingExplanation) {
+    typeText(explanationText, state.pendingExplanation, 12);
+    return;
+  }
+
+  if (state.pendingExplanation) {
     typeText(explanationText, state.pendingExplanation, 12);
     state.aiSummaryRevealed = true;
+    return;
+  }
+
+  explanationText.textContent = "Generating AI Summary...";
+
+  try {
+    const payload = {
+        url: state.lastScannedUrl,
+        threat_score: state.lastAnalysis.threat_score,
+        rule_summary: state.lastAnalysis.rule_summary,
+        contact_signals: state.lastAnalysis.contact_signals,
+        domain_metadata: state.lastAnalysis.domain_metadata
+    };
+    const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
+    state.pendingExplanation = response.data.explanation || "No explanation available.";
+    state.aiSummaryRevealed = true;
+    typeText(explanationText, state.pendingExplanation, 12);
+  } catch (err) {
+    explanationText.textContent = "Failed to generate AI summary.";
   }
 }
 
