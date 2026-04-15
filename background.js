@@ -1,7 +1,7 @@
 const USE_LOCAL_BACKEND = false;
 const API_BASE = USE_LOCAL_BACKEND 
     ? "http://127.0.0.1:5000" 
-    : "https://threatlens-self.vercel.app";
+    : "https://threatlens-api.vercel.app"; // Update this to your ACTUAL Vercel URL
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
