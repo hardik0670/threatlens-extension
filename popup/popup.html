@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ThreatLens</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="bg-gradient"></div>
+        <div id="cursor-glow"></div>
+
+        <header class="header">
+            <div class="brand">
+                <div class="logo-wrapper">
+                    <img src="../assets/icons/icon48.png" class="logo" alt="ThreatLens">
+                </div>
+                <div class="brand-text">
+                    <h1><span class="brand-threat">Threat</span><span class="brand-lens">Lens</span></h1>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
+                    <span class="theme-toggle-track">
+                        <span class="theme-icon theme-icon-sun">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="4"></circle>
+                                <path
+                                    d="M12 2v2M12 20v2m-7.07-14.07 1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2m-4.34-5.66-1.41 1.41M6.34 17.66l-1.41 1.41">
+                                </path>
+                            </svg>
+                        </span>
+                        <span class="theme-icon theme-icon-moon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" aria-hidden="true">
+                                <path
+                                    d="M21 12.79A9 9 0 1 1 11.21 3c0 .3 0 .6.05.9A7 7 0 0 0 20.1 12c.3 0 .6 0 .9-.05z">
+                                </path>
+                            </svg>
+                        </span>
+                    </span>
+                </button>
+                <div class="status-indicator" role="status" aria-label="Extension active">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span class="status-text">Active</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="content">
+            <section class="control-card" aria-label="URL input">
+                <div class="url-card">
+                    <div class="url-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                    </div>
+                    <input id="url-display" type="text" placeholder="Enter a URL or use the current tab"
+                        autocomplete="off" spellcheck="false" aria-label="URL to scan">
+                </div>
+
+                <div class="scan-mode-row">
+                    <div class="scan-mode-copy">
+                        <span id="scan-mode-label" class="scan-mode-label">Domain only</span>
+                    </div>
+                    <label class="toggle-switch" for="full-url-toggle" aria-label="Toggle full URL scanning">
+                        <input id="full-url-toggle" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-side-label">Full URL</span>
+                </div>
+            </section>
+
+            <div id="result-area" class="result-area" role="region" aria-label="Scan result">
+                <div class="score-container" aria-hidden="true">
+                    <svg class="score-rings" viewBox="0 0 100 100">
+                        <defs>
+                            <linearGradient id="gradientStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#6366F1" />
+                                <stop offset="100%" stop-color="#3B82F6" />
+                            </linearGradient>
+                        </defs>
+                        <circle class="ring ring-bg" cx="50" cy="50" r="42" />
+                        <circle id="score-ring" class="ring ring-progress" cx="50" cy="50" r="42" />
+                    </svg>
+                    <div class="score-content">
+                        <span id="score-value" class="score-value">--</span>
+                        <span class="score-suffix">/100</span>
+                    </div>
+                </div>
+
+                <div class="result-right">
+                    <div class="risk-status">
+                        <div class="risk-badge">
+                            <div class="risk-icon" id="verdict-dot" aria-hidden="true"></div>
+                            <span id="risk-text">Ready to Scan</span>
+                        </div>
+                        <p id="risk-description" class="risk-description"></p>
+                        <span id="recent-scan-label" class="recent-scan-label hidden" aria-live="polite"></span>
+                    </div>
+                    <div id="threat-indicators" class="threat-indicators hidden" role="list"
+                        aria-label="Threat indicators"></div>
+                    <div id="domain-age" class="domain-age-card hidden" aria-label="Domain age">
+                        <div class="domain-age-icon" aria-hidden="true">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                        </div>
+                        <div class="domain-age-content">
+                            <span class="domain-age-label">Domain Age</span>
+                            <div class="domain-age-right">
+                                <span id="domain-age-text" class="domain-age-value">-</span>
+                                <span id="domain-reputation-pill" class="domain-reputation-pill hidden"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <section id="seller-insights-section" class="seller-insights-section hidden" aria-label="Seller insights">
+                <button id="seller-insights-btn" class="seller-tab-button" type="button" aria-expanded="false"
+                    aria-controls="seller-insights-panel">
+                    <div class="seller-tab-text-container">
+                        <img id="seller-favicon" src="" width="15" height="15" alt="" aria-hidden="true"
+                            class="seller-tab-favicon">
+                        <span class="seller-tab-label">Seller Insights</span>
+                    </div>
+                    <svg class="seller-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                        <path d="M5 12h14M13 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+                <div id="seller-insights-panel" class="seller-insights-panel hidden" role="region">
+                    <div id="seller-insights-list" class="seller-insights-list"></div>
+                </div>
+            </section>
+
+            <ul id="checklist" class="checklist-list hidden" aria-label="Detailed checks" role="list"></ul>
+
+            <section id="ai-summary-section" class="ai-summary-section hidden" aria-label="AI Summary">
+                <button id="ai-summary-btn" class="ai-summary-tab-button" type="button" aria-expanded="false"
+                    aria-controls="ai-summary-panel">
+                    <div class="ai-summary-tab-text">
+                        <img src="../assets/icons/ai-sparkle.png" width="16" height="16" alt="" aria-hidden="true"
+                            class="ai-sparkle-icon">
+                        <span class="ai-summary-tab-label">Get AI Summary</span>
+                    </div>
+                    <svg class="ai-summary-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+                        <path d="M5 12h14M13 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+                <div id="ai-summary-panel" class="ai-summary-panel hidden" role="region">
+                    <p id="threat-analysis-text" class="explanation-text"></p>
+                </div>
+            </section>
+
+            <button id="scan-btn" class="scan-button" type="button" aria-label="Initiate URL scan">
+                <span class="button-text">
+                    <div class="scan-orb" aria-hidden="true">
+                        <div class="orb-ring orb-ring-outer"></div>
+                        <div class="orb-ring orb-ring-inner"></div>
+                        <div class="orb-core"></div>
+                        <div class="orb-particle p1"></div>
+                        <div class="orb-particle p2"></div>
+                        <div class="orb-particle p3"></div>
+                    </div>
+                    <span><span class="btn-label">Initiate Scan</span></span>
+                </span>
+            </button>
+
+        </main>
+
+        <footer class="footer">
+            <div class="footer-info">
+                <span>ThreatLens v1.3.0</span>
+            </div>
+            <button id="footer-support-toggle" class="footer-support-toggle" type="button" aria-expanded="false"
+                aria-controls="footer-support-panel">Support & Contact</button>
+            <div id="footer-support-panel" class="footer-support-panel hidden" role="region">
+                <a href="mailto:khatrihardik148@gmail.com">khatrihardik148@gmail.com</a>
+                <span class="footer-divider" aria-hidden="true">·</span>
+                <a href="mailto:sameersiddharth2211@gmail.com">sameersiddharth2211@gmail.com</a>
+            </div>
+        </footer>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
