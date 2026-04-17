@@ -60,7 +60,7 @@ const state = {
 
 const ICONS = {
   phone: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.62 2.62a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.46-1.23a2 2 0 0 1 2.11-.45c.85.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92z"></path></svg>`,
-  whatsapp: `<img src="../assets/icons/whatsapp-logo.png" width="14" height="14" alt="WhatsApp" style="object-fit: contain; display: block;">`,
+  whatsapp: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21.01h-.01c-1.6 0-3.17-.43-4.54-1.24l-.33-.19-3.37.89.9-3.28-.21-.34c-.84-1.34-1.29-2.9-1.29-4.51C2.15 7.11 6.57 2.68 12 2.68c2.62 0 5.09 1.02 6.94 2.88a9.8 9.8 0 0 1 2.87 6.96c-.01 5.44-4.42 9.49-9.81 9.49z"/><path stroke-width="1.6" d="M17.47 14.39c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.64.07a9.1 9.1 0 0 1-2.39-1.48 9.1 9.1 0 0 1-1.65-2.06c-.17-.3 0-.46.15-.6.13-.14.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.91-2.2-.25-.6-.49-.5-.67-.51-.17 0-.37-.01-.57-.01-.2 0-.52.07-.79.37s-1.04 1-1.04 2.48 1.07 2.88 1.21 3.07 2.1 3.2 5.08 4.49c.7.3 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.08-.13-.27-.2-.57-.35z"/></svg>`,
   email: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"></path><path d="m4 7 8 6 8-6"></path></svg>`,
   policy: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"></path><path d="M10 14 21 3"></path><path d="M21 14v7H3V3h7"></path></svg>`,
   whois: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`,
@@ -903,11 +903,11 @@ async function toggleAiSummary() {
 
   try {
     const payload = {
-        url: state.lastScannedUrl,
-        threat_score: state.lastAnalysis.threat_score,
-        rule_summary: state.lastAnalysis.rule_summary,
-        contact_signals: state.lastAnalysis.contact_signals,
-        domain_metadata: state.lastAnalysis.domain_metadata
+      url: state.lastScannedUrl,
+      threat_score: state.lastAnalysis.threat_score,
+      rule_summary: state.lastAnalysis.rule_summary,
+      contact_signals: state.lastAnalysis.contact_signals,
+      domain_metadata: state.lastAnalysis.domain_metadata
     };
     const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
     state.pendingExplanation = response.data.explanation || "No explanation available.";
@@ -985,7 +985,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (emailItem) {
         e.preventDefault();
         const email = emailItem.dataset.email;
-        navigator.clipboard.writeText(email).catch(() => {});
+        navigator.clipboard.writeText(email).catch(() => { });
         chrome.tabs.create({ url: `https://mail.google.com/mail/?view=cm&fs=1&to=${email}` });
       }
     });
