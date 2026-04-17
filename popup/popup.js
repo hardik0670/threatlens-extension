@@ -1,7 +1,4 @@
-const USE_LOCAL_BACKEND = false;
-const API_BASE = USE_LOCAL_BACKEND
-  ? "http://127.0.0.1:5000"
-  : "https://threatlens-api.vercel.app";
+const API_BASE = "https://threatlens-api.vercel.app";
 
 const urlDisplay = document.getElementById("url-display");
 const fullUrlToggle = document.getElementById("full-url-toggle");

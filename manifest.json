@@ -5,13 +5,10 @@
   "description": "Analyzes websites for security risks using AI-powered threat detection.",
   "permissions": [
     "activeTab",
-    "scripting",
-    "tabs",
     "storage"
   ],
   "homepage_url": "https://threatlens-site-sooty.vercel.app/privacy/",
   "host_permissions": [
-    "http://localhost:5000/*",
     "https://threatlens-api.vercel.app/*"
   ],
   "action": {
