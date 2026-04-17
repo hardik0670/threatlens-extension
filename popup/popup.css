@@ -157,7 +157,7 @@ body[data-theme="dark"] {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-3) var(--sp-2);
+    padding: var(--sp-2) var(--sp-3) var(--sp-2);
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
@@ -187,7 +187,7 @@ body[data-theme="dark"] {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px 2px var(--sp-3) 2px;
+    padding: 2px 2px var(--sp-3) 2px;
     border-bottom: 1px solid var(--border-default);
     margin-bottom: -2px;
 }
@@ -2019,7 +2019,8 @@ body[data-theme="dark"] .container::-webkit-scrollbar-thumb:hover {
 
 /* ── Header layout tightening ── */
 .header {
-    padding: 10px 0px 14px 2px; /* Reduced right padding to 0 to push items right */
+    padding: 10px 0px 14px 2px;
+    /* Reduced right padding to 0 to push items right */
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2030,7 +2031,8 @@ body[data-theme="dark"] .container::-webkit-scrollbar-thumb:hover {
 .brand {
     display: flex;
     align-items: center;
-    gap: 5px; /* Reduced to bring text closer to the logo */
+    gap: 5px;
+    /* Reduced to bring text closer to the logo */
 }
 
 .logo-wrapper {
@@ -2256,6 +2258,7 @@ body[data-theme="dark"] .ring-progress {
 }
 
 @keyframes resultAreaIdle {
+
     0%,
     100% {
         box-shadow: var(--shadow-md), var(--shadow-inset);
@@ -2272,6 +2275,7 @@ body[data-theme="dark"] .result-area:not(.compact) {
 }
 
 @keyframes resultAreaIdleDark {
+
     0%,
     100% {
         box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 -1px 0 rgba(0, 0, 0, 0.15);
