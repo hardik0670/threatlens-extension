@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ThreatLens - Web Security Guard",
+  "name": "ThreatLens - AI Web Security & Phishing Detector",
   "version": "1.0",
-  "description": "Analyzes websites for security risks using AI-powered threat detection.",
+  "description": "Detect phishing, scams, and unsafe websites instantly with AI-powered real-time analysis",
   "permissions": [
     "activeTab",
     "storage"
@@ -40,5 +40,3 @@
     }
   ]
 }
-
-

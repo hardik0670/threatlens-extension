@@ -914,7 +914,8 @@ async function toggleAiSummary() {
       threat_score: state.lastAnalysis.threat_score,
       rule_summary: state.lastAnalysis.rule_summary,
       contact_signals: state.lastAnalysis.contact_signals,
-      domain_metadata: state.lastAnalysis.domain_metadata
+      domain_metadata: state.lastAnalysis.domain_metadata,
+      risky_categories: state.lastAnalysis.risky_categories || [],
     };
     const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
     state.pendingExplanation = response.data.explanation || "No explanation available.";
