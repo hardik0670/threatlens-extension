@@ -124,6 +124,14 @@ function triggerScan() {
         const rawEmails = pageText.match(emailRegex) || [];
         const validEmails = rawEmails.filter(e => e.includes('.') && e.indexOf('@') > 0).map(e => e.toLowerCase());
 
+        // Extract high-confidence phone numbers directly from text (starts with +, or toll-free)
+        const strictPhoneRegex = /(?:\+\d{1,3}[\s\-()]*(?:\d[\s\-()]*){8,14})|(?:\b(?:1800|1860|0800)[\s\-()]*(?:\d[\s\-()]*){6,10}\b)/g;
+        const rawPhones = pageText.match(strictPhoneRegex) || [];
+        const validPhones = rawPhones.map(p => p.trim()).filter(p => {
+            const digits = p.replace(/\D/g, "");
+            return digits.length >= 10 && digits.length <= 15 && new Set(digits).size > 2;
+        });
+
         sendRuntimeMessage({
             type: "TRUST_SIGNALS",
             data: {
@@ -132,6 +140,7 @@ function triggerScan() {
                 hasRefund: linksText.some(text => text.includes("refund") || text.includes("return")),
                 waNumbers: [...new Set(waNumbers)],
                 emails: [...new Set(validEmails)],
+                phones: [...new Set(validPhones)],
                 domLinks: domLinks.slice(0, 50) // limit size to prevent payload bloat
             }
         });
