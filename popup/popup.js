@@ -625,6 +625,14 @@ function getSelectedUrl() {
   return urlForScan(typedValue);
 }
 
+function getTrustSignals() {
+  return new Promise(resolve => {
+    try {
+      chrome.storage.local.get("trustSignals", res => resolve(res.trustSignals || {}));
+    } catch { resolve({}); }
+  });
+}
+
 async function runScan() {
   const scanUrl = getSelectedUrl();
   if (!scanUrl) { setError("Enter a valid URL to scan."); return; }
@@ -639,7 +647,8 @@ async function runScan() {
   try {
     clearCachedResponse("/predict", { url: scanUrl });
     clearCachedResponse("/seller-insights", { url: scanUrl });
-    const response = await postJsonCached("/predict", { url: scanUrl }, SCAN_CACHE_TTL_MS);
+    const signals = await getTrustSignals();
+    const response = await postJsonCached("/predict", { url: scanUrl, signals }, SCAN_CACHE_TTL_MS);
     applyAnalysis(response.data, response.data.url || scanUrl, response);
   } catch (err) {
     setError(`Could not reach backend: ${err.message}`);
@@ -816,7 +825,8 @@ async function toggleSellerInsights() {
 
   renderSellerLoading();
   try {
-    const response = await postJsonCached("/seller-insights", { url: state.lastScannedUrl }, DETAIL_CACHE_TTL_MS);
+    const signals = await getTrustSignals();
+    const response = await postJsonCached("/seller-insights", { url: state.lastScannedUrl, signals }, DETAIL_CACHE_TTL_MS);
     if (response.data.analysis) {
       state.lastAnalysis = response.data.analysis;
       const threat = typeof response.data.analysis.threat_score === "number"
