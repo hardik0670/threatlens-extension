@@ -109,7 +109,7 @@ function triggerScan() {
              return match ? match[1] : null;
         }).filter(Boolean);
 
-        const interestingKeywords = ["contact", "privacy", "term", "refund", "return", "shipping", "about", "support", "help"];
+        const interestingKeywords = ["contact", "privacy", "term", "refund", "return", "shipping", "about", "support", "help", "store", "locator"];
         const domLinks = aTags
             .filter(a => {
                 const text = (a.innerText || "").toLowerCase();
@@ -118,6 +118,12 @@ function triggerScan() {
             })
             .map(a => ({ href: a.href, text: (a.innerText || "").replace(/\s+/g, " ").trim().substring(0, 100) }));
 
+        // Extract emails directly from page text (catches non-<a> nested emails)
+        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+        const pageText = document.body.innerText || "";
+        const rawEmails = pageText.match(emailRegex) || [];
+        const validEmails = rawEmails.filter(e => e.includes('.') && e.indexOf('@') > 0).map(e => e.toLowerCase());
+
         sendRuntimeMessage({
             type: "TRUST_SIGNALS",
             data: {
@@ -125,6 +131,7 @@ function triggerScan() {
                 hasPrivacy: linksText.some(text => text.includes("privacy")),
                 hasRefund: linksText.some(text => text.includes("refund") || text.includes("return")),
                 waNumbers: [...new Set(waNumbers)],
+                emails: [...new Set(validEmails)],
                 domLinks: domLinks.slice(0, 50) // limit size to prevent payload bloat
             }
         });
