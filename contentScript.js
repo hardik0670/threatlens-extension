@@ -98,22 +98,41 @@ function triggerScan() {
         // Skip internal/extension pages
         if (url.startsWith("chrome://") || url.startsWith("chrome-extension://")) return;
 
-        sendRuntimeMessage({
-            type: "SCAN_URL",
-            url: url
-        });
-
         // Collect trust signals dynamically
-        const links = Array.from(document.querySelectorAll("a"))
-            .map(a => a.innerText.toLowerCase());
+        const aTags = Array.from(document.querySelectorAll("a"));
+        const linksAttr = aTags.map(a => a.href).filter(Boolean);
+        const linksText = aTags.map(a => (a.innerText || "").toLowerCase());
+        
+        const waLinks = linksAttr.filter(href => href.includes("wa.me/") || href.includes("api.whatsapp.com/"));
+        const waNumbers = waLinks.map(href => {
+             let match = href.match(/(?:wa\.me\/|phone=)(\+?\d+)/);
+             return match ? match[1] : null;
+        }).filter(Boolean);
+
+        const interestingKeywords = ["contact", "privacy", "term", "refund", "return", "shipping", "about", "support", "help"];
+        const domLinks = aTags
+            .filter(a => {
+                const text = (a.innerText || "").toLowerCase();
+                const href = (a.href || "").toLowerCase();
+                return interestingKeywords.some(kw => text.includes(kw) || href.includes(kw));
+            })
+            .map(a => ({ href: a.href, text: (a.innerText || "").replace(/\s+/g, " ").trim().substring(0, 100) }));
 
         sendRuntimeMessage({
             type: "TRUST_SIGNALS",
             data: {
-                hasContact: links.some(text => text.includes("contact")),
-                hasPrivacy: links.some(text => text.includes("privacy")),
-                hasRefund: links.some(text => text.includes("refund") || text.includes("return")),
+                hasContact: linksText.some(text => text.includes("contact")),
+                hasPrivacy: linksText.some(text => text.includes("privacy")),
+                hasRefund: linksText.some(text => text.includes("refund") || text.includes("return")),
+                waNumbers: [...new Set(waNumbers)],
+                domLinks: domLinks.slice(0, 50) // limit size to prevent payload bloat
             }
+        });
+
+        // Trigger scan AFTER signals are captured
+        sendRuntimeMessage({
+            type: "SCAN_URL",
+            url: url
         });
     }, 1500); // debounce 1.5 seconds
 }
