@@ -102,11 +102,11 @@ function triggerScan() {
         const aTags = Array.from(document.querySelectorAll("a"));
         const linksAttr = aTags.map(a => a.href).filter(Boolean);
         const linksText = aTags.map(a => (a.innerText || "").toLowerCase());
-        
+
         const waLinks = linksAttr.filter(href => href.includes("wa.me/") || href.includes("api.whatsapp.com/"));
         const waNumbers = waLinks.map(href => {
-             let match = href.match(/(?:wa\.me\/|phone=)(\+?\d+)/);
-             return match ? match[1] : null;
+            let match = href.match(/(?:wa\.me\/|phone=)(\+?\d+)/);
+            return match ? match[1] : null;
         }).filter(Boolean);
 
         const interestingKeywords = ["contact", "privacy", "term", "refund", "return", "shipping", "about", "support", "help", "store", "locator"];
