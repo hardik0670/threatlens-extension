@@ -49,6 +49,7 @@ const C = {
 const state = {
   currentTabUrl: "",
   lastScannedUrl: "",
+  activeScanUrl: "",
   lastAnalysis: null,
   initialThreatScore: null,  // Score from /predict — used as base for transparency adjustment
   sellerInsightsLoadedFor: "",
@@ -662,6 +663,7 @@ async function runScan() {
     return;
   }
 
+  state.activeScanUrl = scanUrl;
   setLoading();
   urlDisplay.value = presentUrl(scanUrl);
 
@@ -670,8 +672,10 @@ async function runScan() {
     clearCachedResponse("/seller-insights", { url: scanUrl });
     const signals = await getTrustSignals();
     const response = await postJsonCached("/predict", { url: scanUrl, signals }, SCAN_CACHE_TTL_MS);
+    if (state.activeScanUrl !== scanUrl) return;
     applyAnalysis(response.data, response.data.url || scanUrl, response);
   } catch (err) {
+    if (state.activeScanUrl !== scanUrl) return;
     setError(`Could not reach backend: ${err.message}`);
   }
 }
@@ -846,8 +850,11 @@ async function toggleSellerInsights() {
 
   renderSellerLoading();
   try {
+    const fetchUrl = state.lastScannedUrl;
     const signals = await getTrustSignals();
-    const response = await postJsonCached("/seller-insights", { url: state.lastScannedUrl, signals }, DETAIL_CACHE_TTL_MS);
+    const response = await postJsonCached("/seller-insights", { url: fetchUrl, signals }, DETAIL_CACHE_TTL_MS);
+
+    if (state.lastScannedUrl !== fetchUrl) return;
 
     // Update analysis state with deep-scan data (for seller details, policies, etc.)
     // but do NOT override the displayed score with the deep-scan's recalculated threat_score.
@@ -874,7 +881,7 @@ async function toggleSellerInsights() {
     const baseScore = state.initialThreatScore;
     if (typeof baseScore === "number") {
       let adjusted = baseScore;
-      if (transparencyLevel === "weak")        adjusted += 0.15;
+      if (transparencyLevel === "weak") adjusted += 0.15;
       else if (transparencyLevel === "strong") adjusted -= 0.05;
       adjusted = Math.max(0, Math.min(1, adjusted));
 
@@ -888,6 +895,7 @@ async function toggleSellerInsights() {
 
     state.sellerInsightsLoadedFor = state.lastScannedUrl;
   } catch (err) {
+    if (state.lastScannedUrl !== fetchUrl) return;
     sellerInsightsList.innerHTML = `<div class="seller-item">
       <div class="seller-icon">${ICONS.policy}</div>
       <div class="seller-main">
@@ -953,8 +961,9 @@ async function toggleAiSummary() {
   explanationText.textContent = "Generating AI Summary...";
 
   try {
+    const fetchUrl = state.lastScannedUrl;
     const payload = {
-      url: state.lastScannedUrl,
+      url: fetchUrl,
       threat_score: state.lastAnalysis.threat_score,
       rule_summary: state.lastAnalysis.rule_summary,
       contact_signals: state.lastAnalysis.contact_signals,
@@ -962,10 +971,14 @@ async function toggleAiSummary() {
       risky_categories: state.lastAnalysis.risky_categories || [],
     };
     const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
+
+    if (state.lastScannedUrl !== fetchUrl) return;
+
     state.pendingExplanation = response.data.explanation || "No explanation available.";
     state.aiSummaryRevealed = true;
     typeText(explanationText, state.pendingExplanation, 12);
   } catch (err) {
+    if (state.lastScannedUrl !== fetchUrl) return;
     explanationText.textContent = "Failed to generate AI summary.";
   }
 }
