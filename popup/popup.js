@@ -406,7 +406,7 @@ function renderChecklist(rules) {
 function showSellerTransparencyBadge(contact) {
   const existing = sellerInsightsBtn.querySelector(".seller-transparency-badge");
   if (existing) existing.remove();
-  if (!contact) return;
+  if (!contact) return "weak";
 
   const hasPhone = (contact.phone_numbers?.length || 0) > 0;
   const hasEmail = (contact.emails?.length || 0) > 0;
@@ -414,17 +414,33 @@ function showSellerTransparencyBadge(contact) {
   const hasRefund = !!contact.refund_policy_url;
   const hasPrivacy = !!contact.privacy_policy_url;
   const hasTerms = !!contact.terms_conditions_url;
-  const score = [hasPhone, hasEmail, hasReturn, hasRefund, hasPrivacy, hasTerms].filter(Boolean).length;
+  const contactChannels = Number(hasPhone) + Number(hasEmail);          // 0, 1, or 2
+  const policySignals = [hasReturn, hasRefund, hasPrivacy, hasTerms].filter(Boolean).length;
+  const score = contactChannels + policySignals;
 
-  let tone, label, iconPath;
-  if (score >= 4) {
-    tone = "safe"; label = "Strong";
+  /*  ── Transparency badge rules ──
+   *  Strong   : needs ≥ 4 total signals AND both phone+email present
+   *  Moderate : needs ≥ 2 total signals AND at least one of phone/email
+   *  Weak     : everything else (incl. zero contact channels regardless of policies)
+   *
+   *  Key rule: if neither phone nor email is found, cap at Weak —
+   *  policy pages alone don't prove the seller is reachable.
+   */
+  let tone, label, iconPath, level;
+  if (contactChannels === 0) {
+    // No direct contact channel → always Weak
+    tone = "danger"; label = "Weak"; level = "weak";
+    iconPath = `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`;
+  } else if (score >= 4 && contactChannels === 2) {
+    // Both phone & email + enough other signals → Strong
+    tone = "safe"; label = "Strong"; level = "strong";
     iconPath = `<polyline points="20 6 9 17 4 12"/>`;
-  } else if (score >= 2) {
-    tone = "warning"; label = "Moderate";
+  } else if (score >= 2 && contactChannels >= 1) {
+    // At least one contact channel + some other signals → Moderate
+    tone = "warning"; label = "Moderate"; level = "moderate";
     iconPath = `<path d="M12 9v4m0 4h.01"/>`;
   } else {
-    tone = "danger"; label = "Weak";
+    tone = "danger"; label = "Weak"; level = "weak";
     iconPath = `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`;
   }
 
@@ -436,6 +452,7 @@ function showSellerTransparencyBadge(contact) {
 
   const container = sellerInsightsBtn.querySelector(".seller-tab-text-container");
   if (container) container.appendChild(badge);
+  return level;
 }
 
 /* ── State setters ── */
@@ -841,7 +858,29 @@ async function toggleSellerInsights() {
     }
     renderSellerInsights(response.data);
     const contact = (response.data.analysis || state.lastAnalysis)?.contact_signals || {};
-    showSellerTransparencyBadge(contact);
+    const transparencyLevel = showSellerTransparencyBadge(contact);
+
+    /* ── Adjust displayed score based on seller transparency ──
+     *  Weak     → +0.15 penalty  (seller is unreachable)
+     *  Moderate → no change
+     *  Strong   → −0.05 bonus    (seller is fully transparent)
+     *  Clamped to [0, 1] and re-rendered on the ring & verdict.
+     */
+    const analysis = response.data.analysis || state.lastAnalysis;
+    if (analysis && typeof analysis.threat_score === "number") {
+      let adjusted = analysis.threat_score;
+      if (transparencyLevel === "weak")        adjusted += 0.15;
+      else if (transparencyLevel === "strong") adjusted -= 0.05;
+      adjusted = Math.max(0, Math.min(1, adjusted));
+
+      if (adjusted !== analysis.threat_score) {
+        const newVerdict = adjusted > 0.5 ? "High Risk" : adjusted > 0.3 ? "Medium Risk" : "Safe";
+        animateRing(adjusted);
+        setVerdict(newVerdict, adjusted);
+        renderIndicators(state.lastScannedUrl, analysis, adjusted);
+      }
+    }
+
     state.sellerInsightsLoadedFor = state.lastScannedUrl;
   } catch (err) {
     sellerInsightsList.innerHTML = `<div class="seller-item">
