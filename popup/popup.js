@@ -50,6 +50,7 @@ const state = {
   currentTabUrl: "",
   lastScannedUrl: "",
   lastAnalysis: null,
+  initialThreatScore: null,  // Score from /predict — used as base for transparency adjustment
   sellerInsightsLoadedFor: "",
   pendingExplanation: "",
   aiSummaryRevealed: false,
@@ -561,6 +562,9 @@ function applyAnalysis(data, scannedUrl, options = {}) {
       ? Math.max(0, 1 - data.score / 100)
       : 0.5;
 
+  // Preserve the initial /predict score as the base for transparency adjustments
+  state.initialThreatScore = threat;
+
   animateRing(threat);
   setVerdict(data.verdict ?? data.level, threat);
   renderDomainAge(data.domain_age_days ?? null);
@@ -844,40 +848,41 @@ async function toggleSellerInsights() {
   try {
     const signals = await getTrustSignals();
     const response = await postJsonCached("/seller-insights", { url: state.lastScannedUrl, signals }, DETAIL_CACHE_TTL_MS);
+
+    // Update analysis state with deep-scan data (for seller details, policies, etc.)
+    // but do NOT override the displayed score with the deep-scan's recalculated threat_score.
     if (response.data.analysis) {
       state.lastAnalysis = response.data.analysis;
-      const threat = typeof response.data.analysis.threat_score === "number"
-        ? response.data.analysis.threat_score : 0.5;
-      animateRing(threat);
-      setVerdict(response.data.analysis.verdict ?? response.data.analysis.level, threat);
-      renderIndicators(state.lastScannedUrl, response.data.analysis, threat);
-      renderChecklist(response.data.analysis.fired_rules || []);
       state.pendingExplanation = "";
       state.aiSummaryRevealed = false;
       threatExpl.classList.remove("hidden");
     }
+
     renderSellerInsights(response.data);
     const contact = (response.data.analysis || state.lastAnalysis)?.contact_signals || {};
     const transparencyLevel = showSellerTransparencyBadge(contact);
 
     /* ── Adjust displayed score based on seller transparency ──
-     *  Weak     → +0.15 penalty  (seller is unreachable)
+     *  Uses the ORIGINAL /predict score as the base (not the deep-scan score),
+     *  so the user sees the score change only due to transparency.
+     *
+     *  Weak     → +0.15 penalty  (seller is unreachable → score decreases)
      *  Moderate → no change
-     *  Strong   → −0.05 bonus    (seller is fully transparent)
+     *  Strong   → −0.05 bonus    (seller is fully transparent → score increases)
      *  Clamped to [0, 1] and re-rendered on the ring & verdict.
      */
-    const analysis = response.data.analysis || state.lastAnalysis;
-    if (analysis && typeof analysis.threat_score === "number") {
-      let adjusted = analysis.threat_score;
+    const baseScore = state.initialThreatScore;
+    if (typeof baseScore === "number") {
+      let adjusted = baseScore;
       if (transparencyLevel === "weak")        adjusted += 0.15;
       else if (transparencyLevel === "strong") adjusted -= 0.05;
       adjusted = Math.max(0, Math.min(1, adjusted));
 
-      if (adjusted !== analysis.threat_score) {
+      if (adjusted !== baseScore) {
         const newVerdict = adjusted > 0.5 ? "High Risk" : adjusted > 0.3 ? "Medium Risk" : "Safe";
         animateRing(adjusted);
         setVerdict(newVerdict, adjusted);
-        renderIndicators(state.lastScannedUrl, analysis, adjusted);
+        renderIndicators(state.lastScannedUrl, state.lastAnalysis, adjusted);
       }
     }
 
