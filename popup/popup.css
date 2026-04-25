@@ -2159,11 +2159,11 @@ body[data-theme="dark"] .header-accent-line::after {
     animation: scanBtnShimmer 3.2s ease-in-out infinite;
 }
 
-/* AI Summary button — pulsing border glow using accent colors */
+/* AI Summary button — cycling Google-color border glow */
 .ai-summary-tab-button {
     position: relative;
     border-radius: var(--radius-lg);
-    animation: aiButtonGlow 3.8s ease-in-out infinite;
+    animation: aiButtonGlow 6s ease-in-out infinite;
 }
 
 .ai-summary-tab-button.open {
@@ -2343,18 +2343,28 @@ body[data-theme="dark"] .score-idle-glow {
 
     0%,
     100% {
-        border-color: var(--border-medium);
-        box-shadow: var(--shadow-xs), var(--shadow-inset);
+        border-color: rgba(66, 133, 244, 0.45);
+        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(66, 133, 244, 0.12), 0 0 0 2px rgba(66, 133, 244, 0.08);
+    }
+
+    25% {
+        border-color: rgba(219, 68, 55, 0.45);
+        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(219, 68, 55, 0.12), 0 0 0 2px rgba(219, 68, 55, 0.08);
     }
 
     50% {
-        border-color: rgba(79, 110, 247, 0.32);
-        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 0 2px rgba(79, 110, 247, 0.07);
+        border-color: rgba(244, 180, 0, 0.50);
+        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(244, 180, 0, 0.14), 0 0 0 2px rgba(244, 180, 0, 0.09);
+    }
+
+    75% {
+        border-color: rgba(15, 157, 88, 0.45);
+        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(15, 157, 88, 0.12), 0 0 0 2px rgba(15, 157, 88, 0.08);
     }
 }
 
 body[data-theme="dark"] .ai-summary-tab-button:not(.open) {
-    animation: aiButtonGlowDark 3.8s ease-in-out infinite;
+    animation: aiButtonGlowDark 6s ease-in-out infinite;
 }
 
 body[data-theme="dark"] .ai-summary-tab-button.open {
@@ -2365,13 +2375,23 @@ body[data-theme="dark"] .ai-summary-tab-button.open {
 
     0%,
     100% {
-        border-color: var(--border-medium);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        border-color: rgba(66, 133, 244, 0.50);
+        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(66, 133, 244, 0.15), 0 0 0 2px rgba(66, 133, 244, 0.10);
+    }
+
+    25% {
+        border-color: rgba(219, 68, 55, 0.50);
+        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(219, 68, 55, 0.15), 0 0 0 2px rgba(219, 68, 55, 0.10);
     }
 
     50% {
-        border-color: rgba(96, 128, 248, 0.35);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 2px rgba(96, 128, 248, 0.09);
+        border-color: rgba(244, 180, 0, 0.55);
+        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(244, 180, 0, 0.18), 0 0 0 2px rgba(244, 180, 0, 0.12);
+    }
+
+    75% {
+        border-color: rgba(15, 157, 88, 0.50);
+        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(15, 157, 88, 0.15), 0 0 0 2px rgba(15, 157, 88, 0.10);
     }
 }
 
