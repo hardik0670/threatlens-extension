@@ -1500,35 +1500,100 @@ body[data-theme="dark"] .domain-age-icon {
     justify-content: space-between;
     gap: var(--sp-3);
     padding: 11px var(--sp-4);
-    background: var(--bg-surface);
-    border: 1px solid var(--border-medium);
+    background: transparent;
+    border: none;
     border-radius: var(--radius-lg);
     color: var(--color-text-primary);
     cursor: pointer;
-    box-shadow: var(--shadow-xs), var(--shadow-inset);
+    position: relative;
+    z-index: 0;
+    overflow: hidden;
     transition:
         transform var(--t-base) var(--ease-out),
-        border-color var(--t-base) ease,
-        box-shadow var(--t-base) ease,
-        border-radius var(--t-base) ease,
-        background var(--t-base) ease;
+        border-radius var(--t-base) ease;
+}
+
+/* Rotating conic-gradient trail — large centered square so rotation is smooth */
+.ai-summary-tab-button::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 420px;
+    height: 420px;
+    background: conic-gradient(
+        from 0deg,
+        #4285F4 0deg,
+        #4285F4 60deg,
+        #DB4437 90deg,
+        #DB4437 150deg,
+        #F4B400 180deg,
+        #F4B400 240deg,
+        #0F9D58 270deg,
+        #0F9D58 330deg,
+        #4285F4 360deg
+    );
+    transform: translate(-50%, -50%) rotate(0deg);
+    animation: googleTrailSpin 4s linear infinite;
+    z-index: -2;
+    opacity: 0.6;
+    transition: opacity var(--t-base) ease;
+}
+
+/* Inner mask — fully opaque, covers center, gradient only visible as thin border */
+.ai-summary-tab-button::after {
+    content: "";
+    position: absolute;
+    inset: 1.5px;
+    border-radius: calc(var(--radius-lg) - 1.5px);
+    background: #f3f5fa;
+    z-index: -1;
+    box-shadow: var(--shadow-inset);
+    transition: background var(--t-base) ease, inset var(--t-base) ease;
+}
+
+body[data-theme="dark"] .ai-summary-tab-button::after {
+    background: #111d30;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="dark"] .ai-summary-tab-button::before {
+    opacity: 0.75;
 }
 
 .ai-summary-tab-button:hover {
     transform: translateY(-1px);
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-md), var(--shadow-inset);
 }
 
-body[data-theme="dark"] .ai-summary-tab-button:hover {
-    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+.ai-summary-tab-button:hover::before {
+    opacity: 0.85;
+}
+
+body[data-theme="dark"] .ai-summary-tab-button:hover::before {
+    opacity: 0.95;
 }
 
 .ai-summary-tab-button.open {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    border-bottom-color: transparent;
     transform: none;
+}
+
+.ai-summary-tab-button.open::before {
+    opacity: 0;
+    animation: none;
+}
+
+.ai-summary-tab-button.open::after {
+    inset: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border: 1px solid var(--border-medium);
+    border-bottom: none;
+    background: var(--bg-surface);
     box-shadow: none;
+}
+
+body[data-theme="dark"] .ai-summary-tab-button.open::after {
+    background: var(--bg-surface-raised);
 }
 
 .ai-summary-tab-button:focus-visible {
@@ -2159,17 +2224,7 @@ body[data-theme="dark"] .header-accent-line::after {
     animation: scanBtnShimmer 3.2s ease-in-out infinite;
 }
 
-/* AI Summary button — cycling Google-color border glow */
-.ai-summary-tab-button {
-    position: relative;
-    border-radius: var(--radius-lg);
-    animation: aiButtonGlow 6s ease-in-out infinite;
-}
-
-.ai-summary-tab-button.open {
-    animation: none;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
+/* AI Summary button — trail glow is handled by ::before conic-gradient above */
 
 /* Seller insights button — subtle ambient */
 .seller-tab-button {
@@ -2339,59 +2394,13 @@ body[data-theme="dark"] .score-idle-glow {
     }
 }
 
-@keyframes aiButtonGlow {
+@keyframes googleTrailSpin {
+    0% {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
 
-    0%,
     100% {
-        border-color: rgba(66, 133, 244, 0.45);
-        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(66, 133, 244, 0.12), 0 0 0 2px rgba(66, 133, 244, 0.08);
-    }
-
-    25% {
-        border-color: rgba(219, 68, 55, 0.45);
-        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(219, 68, 55, 0.12), 0 0 0 2px rgba(219, 68, 55, 0.08);
-    }
-
-    50% {
-        border-color: rgba(244, 180, 0, 0.50);
-        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(244, 180, 0, 0.14), 0 0 0 2px rgba(244, 180, 0, 0.09);
-    }
-
-    75% {
-        border-color: rgba(15, 157, 88, 0.45);
-        box-shadow: var(--shadow-xs), var(--shadow-inset), 0 0 8px rgba(15, 157, 88, 0.12), 0 0 0 2px rgba(15, 157, 88, 0.08);
-    }
-}
-
-body[data-theme="dark"] .ai-summary-tab-button:not(.open) {
-    animation: aiButtonGlowDark 6s ease-in-out infinite;
-}
-
-body[data-theme="dark"] .ai-summary-tab-button.open {
-    animation: none;
-}
-
-@keyframes aiButtonGlowDark {
-
-    0%,
-    100% {
-        border-color: rgba(66, 133, 244, 0.50);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(66, 133, 244, 0.15), 0 0 0 2px rgba(66, 133, 244, 0.10);
-    }
-
-    25% {
-        border-color: rgba(219, 68, 55, 0.50);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(219, 68, 55, 0.15), 0 0 0 2px rgba(219, 68, 55, 0.10);
-    }
-
-    50% {
-        border-color: rgba(244, 180, 0, 0.55);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(244, 180, 0, 0.18), 0 0 0 2px rgba(244, 180, 0, 0.12);
-    }
-
-    75% {
-        border-color: rgba(15, 157, 88, 0.50);
-        box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 10px rgba(15, 157, 88, 0.15), 0 0 0 2px rgba(15, 157, 88, 0.10);
+        transform: translate(-50%, -50%) rotate(360deg);
     }
 }
 

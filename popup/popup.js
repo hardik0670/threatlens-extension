@@ -508,6 +508,8 @@ function setLoading() {
   state.aiSummaryRevealed = false;
   sellerInsightsSection.classList.add("hidden");
   collapseSellerInsights();
+  sellerInsightsList.innerHTML = "";
+  state.sellerInsightsLoadedFor = "";
   scanBtn.disabled = true;
   scanBtn.classList.add("scanning");
   sellerInsightsBtn.disabled = true;
@@ -554,6 +556,7 @@ function applyAnalysis(data, scannedUrl, options = {}) {
   state.lastAnalysis = data;
   state.lastScannedUrl = scannedUrl;
   state.sellerInsightsLoadedFor = "";
+  sellerInsightsList.innerHTML = "";
   state.pendingExplanation = data.explanation || "";
   state.aiSummaryRevealed = false;
 
@@ -673,7 +676,7 @@ async function runScan() {
     const signals = await getTrustSignals();
     const response = await postJsonCached("/predict", { url: scanUrl, signals }, SCAN_CACHE_TTL_MS);
     if (state.activeScanUrl !== scanUrl) return;
-    applyAnalysis(response.data, response.data.url || scanUrl, response);
+    applyAnalysis(response.data, scanUrl, response);
   } catch (err) {
     if (state.activeScanUrl !== scanUrl) return;
     setError(`Could not reach backend: ${err.message}`);
@@ -839,6 +842,9 @@ async function toggleSellerInsights() {
   if (!state.lastScannedUrl) return;
   const willOpen = sellerInsightsPanel.classList.contains("hidden");
   if (!willOpen) { collapseSellerInsights(); return; }
+
+  // Always clear old content to prevent stale data from previous scans
+  sellerInsightsList.innerHTML = "";
 
   sellerInsightsBtn.classList.add("open");
   sellerInsightsBtn.setAttribute("aria-expanded", "true");
