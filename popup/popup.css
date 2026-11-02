@@ -2463,3 +2463,7 @@ body[data-theme="dark"] .score-idle-glow {
         transition-duration: 0.01ms !important;
     }
 }
+.seller-evidence-note { display: block; margin-top: 4px; opacity: .8; }
+.seller-value details { margin-top: 8px; }
+.seller-value summary { cursor: pointer; font-weight: 600; }
+.seller-value p { margin: 8px 0; }

@@ -1,40 +1,80 @@
 const API_BASE = "https://threatlens-api.vercel.app";
 
+const SIGNAL_TTL_MS = 5 * 60 * 1000;
+
+function signalKey(tabId) { return `page-signals-v2:${tabId}`; }
+
+async function saveSignals(sender, signals) {
+    if (sender.tab?.id == null || sender.frameId !== 0) return;
+    await chrome.storage.session.set({
+        [signalKey(sender.tab.id)]: { url: sender.url, signals: { ...signals, sourceUrl: new URL(sender.url).origin + new URL(sender.url).pathname }, savedAt: Date.now() }
+    });
+}
+
+async function readSignals(tabId, url) {
+    const key = signalKey(tabId);
+    const entry = (await chrome.storage.session.get(key))[key];
+    if (!entry || Date.now() - entry.savedAt > SIGNAL_TTL_MS) return {};
+    try {
+        const page = new URL(entry.url);
+        const target = new URL(url);
+        page.hash = "";
+        target.hash = "";
+        if (page.origin !== target.origin) return {};
+        if (target.pathname !== "/" || target.search) {
+            if (page.href !== target.href) return {};
+        }
+        return entry.signals;
+    } catch { return {}; }
+}
+
+chrome.tabs.onRemoved.addListener(tabId => {
+    chrome.storage.session.remove([signalKey(tabId), `page-scan-v2:${tabId}`]);
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-
-    // ✅ Handle ANALYZE_DATA
-    if (message.type === "ANALYZE_DATA") {
-        analyzeWithAPI(message.data)
-            .then(result => sendResponse(result))
-            .catch(err => sendResponse({ error: err.message }));
-        return true;
-    }
-
-    // ✅ Handle SCAN_URL (real-time detection)
-    if (message.type === "SCAN_URL") {
-        // Strip URL to origin only (same as popup) to avoid ML path-bias
-        let scanUrl = message.url;
-        try { scanUrl = new URL(message.url).origin; } catch { }
-
-        chrome.storage.local.get("trustSignals", (result) => {
-            fetch(`${API_BASE}/predict`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    url: scanUrl,
-                    signals: result.trustSignals || {}
-                })
-            })
-                .then(res => res.json())
-                .catch(err => console.error("API ERROR:", err));
-        });
-        return true; // ← Keep message channel open for async response
-    }
-
-    // ✅ Handle TRUST SIGNALS
-    if (message.type === "TRUST_SIGNALS") {
-        chrome.storage.local.set({ trustSignals: message.data });
-    }
+    const handle = async () => {
+        if (message.type === "GET_TRUST_SIGNALS") {
+            if (sender.tab) return {};
+            const tab = await chrome.tabs.get(message.tabId);
+            if (new URL(tab.url).origin !== new URL(message.url).origin) return {};
+            try {
+                const fresh = await chrome.tabs.sendMessage(message.tabId, { type: "COLLECT_SELLER_SIGNALS" }, { frameId: 0 });
+                if (fresh && !fresh.error) await saveSignals({ tab, frameId: 0, url: tab.url }, fresh);
+            } catch { /* Content scripts may be unavailable on restricted tabs. */ }
+            return readSignals(message.tabId, message.url);
+        }
+        if (message.type === "TRUST_SIGNALS") {
+            await saveSignals(sender, message.data);
+            return { ok: true };
+        }
+        if (message.type === "SCAN_URL") {
+            if (!sender.tab || sender.frameId !== 0) return { error: "Missing page context" };
+            // Capture signals with the scan so storage writes cannot race the request.
+            if (message.signals) await saveSignals(sender, message.signals);
+            const scanUrl = new URL(sender.url).origin;
+            const signals = await readSignals(sender.tab.id, scanUrl);
+            const response = await fetch(`${API_BASE}/predict`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: scanUrl, signals }),
+                signal: AbortSignal.timeout(15000)
+            });
+            if (!response.ok) throw new Error(`API returned ${response.status}`);
+            const analysis = await response.json();
+            await chrome.storage.session.set({ [`page-scan-v2:${sender.tab.id}`]: { url: scanUrl, analysis, savedAt: Date.now() } });
+            return analysis;
+        }
+        if (message.type === "GET_RECENT_SCAN") {
+            if (sender.tab) return null;
+            const key = `page-scan-v2:${message.tabId}`;
+            const entry = (await chrome.storage.session.get(key))[key];
+            return entry && entry.url === message.url && Date.now() - entry.savedAt < SIGNAL_TTL_MS ? entry : null;
+        }
+        if (message.type === "ANALYZE_DATA") return analyzeWithAPI(message.data);
+        return { error: "Unknown message" };
+    };
+    handle().then(sendResponse).catch(() => sendResponse({ error: "Page analysis unavailable" }));
+    return true;
 });
 
 function extractBaseUrl(fullUrl) {
@@ -68,14 +108,14 @@ async function analyzeWithAPI(pageData) {
 
         // Merge URL-based ML flags with live DOM signals from contentScript
         const pageFlags = buildPageFlags(pageData);
-        const allFlags = [...(data.flags || []), ...pageFlags];
+        const allFlags = [...(data.fired_rules || []).filter(rule => rule.adjustment > 0).map(rule => ({ label: rule.rule, detail: rule.reason, severity: rule.adjustment >= 0.2 ? "high" : "medium" })), ...pageFlags];
 
         return {
-            score: data.score,
-            level: data.level,
-            levelClass: data.level_class,
+            score: Math.round((1 - data.threat_score) * 100),
+            level: data.verdict,
+            levelClass: data.threat_score > 0.5 ? "high" : data.threat_score > 0.3 ? "medium" : "low",
             flags: allFlags,
-            positives: data.positives || [],
+            positives: (data.fired_rules || []).filter(rule => rule.adjustment < 0).map(rule => rule.reason),
             domain: data.domain || pageData.domain,
             domain_age_str: data.domain_age_str || null,
             domain_age_days: data.domain_age_days ?? -1,  // ← needed for color coding

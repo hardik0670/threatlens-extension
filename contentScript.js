@@ -79,6 +79,7 @@ if (isExtensionContextAvailable()) {
                 const pageData = collectPageData();
                 sendResponse(pageData);
             }
+            if (request.type === "COLLECT_SELLER_SIGNALS") sendResponse(collectSellerSignals());
             return true; // keep message channel open for async
         });
     } catch (error) {
@@ -91,6 +92,47 @@ if (isExtensionContextAvailable()) {
 
 
 let scanTimeout = null;
+function collectSellerSignals() {
+    const source = new URL(location.href);
+    source.search = "";
+    source.hash = "";
+    const result = { sourceUrl: source.href, pageTitle: document.title.slice(0, 300),
+        contactBlocks: [], policyBlocks: [], domLinks: [] };
+    // Public merchant evidence only. Never collect entered values or account pages.
+    if (/(?:^|\/)(?:account|checkout|orders|login|admin)(?:\/|$)/i.test(source.pathname)) return result;
+    const visible = el => !el.closest("form, input, textarea, select, [contenteditable], [hidden], [aria-hidden='true']") && el.getClientRects().length > 0;
+    const compact = el => (el.innerText || "").replace(/\s+/g, " ").trim();
+    const anchors = [...document.querySelectorAll("a[href]")].filter(visible);
+    result.domLinks = anchors.filter(a => /contact|privacy|terms|refund|return|exchange|shipping|delivery|cancellation|support/i.test(a.href + " " + compact(a)))
+        .slice(0, 80).map(a => ({ href: a.href.slice(0, 1000), text: compact(a).slice(0, 150) }));
+    const seen = new Set();
+    for (const el of document.querySelectorAll("p, li, address, a, span")) {
+        if (!visible(el) || el.closest("nav") || el.querySelector("p, li, address")) continue;
+        const text = compact(el);
+        const href = el.tagName === "A" ? el.href : undefined;
+        if (!text || text.length > 700 || seen.has(text)) continue;
+        if (!(/(?:phone|telephone|mobile|call|whats\s*app|support|exchange|contact|india|tamil nadu|maharashtra)/i.test(text) && /\d/.test(text))
+            && !/@|\+\d/.test(text) && !/^(?:tel:|mailto:)|wa\.me\//i.test(href || "")) continue;
+        seen.add(text);
+        result.contactBlocks.push({ text, ...(href ? { href: href.slice(0, 1000) } : {}) });
+        if (result.contactBlocks.length >= 60) { result.evidenceTruncated = true; break; }
+    }
+    if (/policy|policies|refund|return|exchange|shipping|delivery|cancellation|privacy|terms/i.test(source.pathname + " " + document.title)) {
+        const main = document.querySelector(".shopify-policy__body, main, [role='main'], article, #MainContent");
+        let total = 0;
+        if (main) for (const el of main.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,tr")) {
+            if (!visible(el) || el.closest("nav, footer, header, aside") || (el.tagName === "P" && el.closest("li, tr"))) continue;
+            const text = compact(el);
+            if (!text || text.length > 1500) continue;
+            total += text.length;
+            if (total > 40000) { result.evidenceTruncated = true; break; }
+            result.policyBlocks.push({ text, level: /^H[1-6]$/.test(el.tagName) ? Number(el.tagName[1]) : 0 });
+            if (result.policyBlocks.length >= 120) { result.evidenceTruncated = true; break; }
+        }
+    }
+    return result;
+}
+
 function triggerScan() {
     if (scanTimeout) clearTimeout(scanTimeout);
     scanTimeout = setTimeout(() => {
@@ -98,63 +140,20 @@ function triggerScan() {
         // Skip internal/extension pages
         if (url.startsWith("chrome://") || url.startsWith("chrome-extension://")) return;
 
-        // Collect trust signals dynamically
-        const aTags = Array.from(document.querySelectorAll("a"));
-        const linksAttr = aTags.map(a => a.href).filter(Boolean);
-        const linksText = aTags.map(a => (a.innerText || "").toLowerCase());
+        const signals = collectSellerSignals();
 
-        const waLinks = linksAttr.filter(href => href.includes("wa.me/") || href.includes("api.whatsapp.com/"));
-        const waNumbers = waLinks.map(href => {
-            let match = href.match(/(?:wa\.me\/|phone=)(\+?\d+)/);
-            return match ? match[1] : null;
-        }).filter(Boolean);
-
-        const interestingKeywords = ["contact", "privacy", "term", "refund", "return", "shipping", "about", "support", "help", "store", "locator"];
-        const domLinks = aTags
-            .filter(a => {
-                const text = (a.innerText || "").toLowerCase();
-                const href = (a.href || "").toLowerCase();
-                return interestingKeywords.some(kw => text.includes(kw) || href.includes(kw));
-            })
-            .map(a => ({ href: a.href, text: (a.innerText || "").replace(/\s+/g, " ").trim().substring(0, 100) }));
-
-        // Extract emails directly from page text (catches non-<a> nested emails)
-        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-        const pageText = document.body.innerText || "";
-        const rawEmails = pageText.match(emailRegex) || [];
-        const validEmails = rawEmails.filter(e => e.includes('.') && e.indexOf('@') > 0).map(e => e.toLowerCase());
-
-        // Extract high-confidence phone numbers directly from text (starts with +, or toll-free)
-        const strictPhoneRegex = /(?:\+\d{1,3}[\s\-()]*(?:\d[\s\-()]*){8,14})|(?:\b(?:1800|1860|0800)[\s\-()]*(?:\d[\s\-()]*){6,10}\b)/g;
-        const rawPhones = pageText.match(strictPhoneRegex) || [];
-        const validPhones = rawPhones.map(p => p.trim()).filter(p => {
-            const digits = p.replace(/\D/g, "");
-            return digits.length >= 10 && digits.length <= 15 && new Set(digits).size > 2;
-        });
-
-        sendRuntimeMessage({
-            type: "TRUST_SIGNALS",
-            data: {
-                hasContact: linksText.some(text => text.includes("contact")),
-                hasPrivacy: linksText.some(text => text.includes("privacy")),
-                hasRefund: linksText.some(text => text.includes("refund") || text.includes("return")),
-                waNumbers: [...new Set(waNumbers)],
-                emails: [...new Set(validEmails)],
-                phones: [...new Set(validPhones)],
-                domLinks: domLinks.slice(0, 50) // limit size to prevent payload bloat
-            }
-        });
-
-        // Trigger scan AFTER signals are captured
+        // Capture signals together with the scan
         sendRuntimeMessage({
             type: "SCAN_URL",
-            url: url
+            url: url,
+            signals
         });
     }, 1500); // debounce 1.5 seconds
 }
 
 // Automatically sends scan request + trust signals when page loads
-window.addEventListener("load", triggerScan);
+if (document.readyState === "complete") triggerScan();
+else window.addEventListener("load", triggerScan, { once: true });
 
 // SPA Support: Watch for dynamically injected login/checkout forms
 const observer = new MutationObserver((mutations) => {

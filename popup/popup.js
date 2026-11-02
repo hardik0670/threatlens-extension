@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-v2";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -48,10 +48,11 @@ const C = {
 
 const state = {
   currentTabUrl: "",
+  currentTabId: null,
+  scanRevision: 0,
   lastScannedUrl: "",
   activeScanUrl: "",
   lastAnalysis: null,
-  initialThreatScore: null,  // Score from /predict — used as base for transparency adjustment
   sellerInsightsLoadedFor: "",
   pendingExplanation: "",
   aiSummaryRevealed: false,
@@ -107,6 +108,7 @@ function indicatorRow(type, colour, label, statusText) {
 
 function normaliseUrl(raw) {
   const trimmed = (raw || "").trim();
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^https?:\/\//i.test(trimmed) && !/^[^/:]+:\d+(?:[/?#]|$)/.test(trimmed)) return "";
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) {
     try { return new URL(trimmed).toString(); } catch { return ""; }
@@ -186,7 +188,7 @@ function writeScanCache(cache) {
 }
 
 function buildCacheKey(path, payload) {
-  return `${path}::${payload?.url || ""}`;
+  return `${path}::${payload?.url || ""}${path === "/explain" ? `::${JSON.stringify(payload)}` : payload?.signals ? `::${JSON.stringify(payload.signals)}` : ""}`;
 }
 
 function pruneExpiredCacheEntries(cache) {
@@ -210,6 +212,9 @@ function setCachedResponse(path, payload, data, ttlMs) {
   const cache = pruneExpiredCacheEntries(readScanCache());
   const key = buildCacheKey(path, payload);
   cache[key] = { data, savedAt: Date.now(), expiresAt: Date.now() + ttlMs };
+  // Evidence can be larger than the old boolean signals. Keep storage bounded.
+  const oldest = Object.keys(cache).sort((a, b) => cache[a].savedAt - cache[b].savedAt);
+  while (oldest.length > 8) delete cache[oldest.shift()];
   writeScanCache(cache);
 }
 
@@ -400,22 +405,22 @@ function renderChecklist(rules) {
       <svg class="indicator-icon tone-${tone}" width="13" height="13" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2.5"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>
-      <span class="indicator-label">${rule.reason}</span>`;
+      <span class="indicator-label">${escapeHtml(rule.reason)}</span>`;
     checklistEl.appendChild(li);
   });
 }
 
-function showSellerTransparencyBadge(contact) {
+function showSellerTransparencyBadge(contact, scanStatus) {
   const existing = sellerInsightsBtn.querySelector(".seller-transparency-badge");
   if (existing) existing.remove();
   if (!contact) return "weak";
 
-  const hasPhone = (contact.phone_numbers?.length || 0) > 0;
+  const hasPhone = contact.contacts ? contact.contacts.some(c => c.validated && !c.conflict && ["phone", "whatsapp"].includes(c.channel)) : !!contact.has_phone;
   const hasEmail = (contact.emails?.length || 0) > 0;
-  const hasReturn = !!contact.return_policy_url;
-  const hasRefund = !!contact.refund_policy_url;
-  const hasPrivacy = !!contact.privacy_policy_url;
-  const hasTerms = !!contact.terms_conditions_url;
+  const hasReturn = !!contact.has_return_policy;
+  const hasRefund = !!contact.has_refund_policy;
+  const hasPrivacy = !!contact.has_privacy_policy;
+  const hasTerms = !!contact.has_terms_conditions;
   const contactChannels = Number(hasPhone) + Number(hasEmail);          // 0, 1, or 2
   const policySignals = [hasReturn, hasRefund, hasPrivacy, hasTerms].filter(Boolean).length;
   const score = contactChannels + policySignals;
@@ -429,7 +434,10 @@ function showSellerTransparencyBadge(contact) {
    *  policy pages alone don't prove the seller is reachable.
    */
   let tone, label, iconPath, level;
-  if (contactChannels === 0) {
+  if (scanStatus?.status === "partial" || contact.contacts?.some(c => c.conflict)) {
+    tone = "warning"; label = "Incomplete"; level = "incomplete";
+    iconPath = `<path d="M12 9v4m0 4h.01"/>`;
+  } else if (contactChannels === 0) {
     // No direct contact channel → always Weak
     tone = "danger"; label = "Weak"; level = "weak";
     iconPath = `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`;
@@ -450,7 +458,7 @@ function showSellerTransparencyBadge(contact) {
   badge.className = `seller-transparency-badge ${tone}`;
   badge.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-    aria-hidden="true">${iconPath}</svg> Seller Tranparency – ${label}`;
+    aria-hidden="true">${iconPath}</svg> Seller Transparency – ${label}`;
 
   const container = sellerInsightsBtn.querySelector(".seller-tab-text-container");
   if (container) container.appendChild(badge);
@@ -553,6 +561,8 @@ function closeHeaderMenu(event) {
 }
 
 function applyAnalysis(data, scannedUrl, options = {}) {
+  const oldBadge = sellerInsightsBtn.querySelector(".seller-transparency-badge");
+  if (oldBadge) oldBadge.remove();
   state.lastAnalysis = data;
   state.lastScannedUrl = scannedUrl;
   state.sellerInsightsLoadedFor = "";
@@ -566,8 +576,6 @@ function applyAnalysis(data, scannedUrl, options = {}) {
       ? Math.max(0, 1 - data.score / 100)
       : 0.5;
 
-  // Preserve the initial /predict score as the base for transparency adjustments
-  state.initialThreatScore = threat;
 
   animateRing(threat);
   setVerdict(data.verdict ?? data.level, threat);
@@ -610,6 +618,7 @@ async function postJson(path, payload) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(path === "/seller-insights" ? 45000 : 30000),
   });
   if (!res.ok) {
     let message = `Server responded with HTTP ${res.status}`;
@@ -619,7 +628,11 @@ async function postJson(path, payload) {
     } catch { }
     throw new Error(message);
   }
-  return res.json();
+  const data = await res.json();
+  if (path === "/seller-insights" && data.analysis?.extraction_version !== "seller-v2") {
+    throw new Error("Seller Insights is waiting for a service update. Please try again later.");
+  }
+  return data;
 }
 
 async function postJsonCached(path, payload, ttlMs) {
@@ -650,12 +663,12 @@ function getSelectedUrl() {
   return urlForScan(typedValue);
 }
 
-function getTrustSignals() {
-  return new Promise(resolve => {
-    try {
-      chrome.storage.local.get("trustSignals", res => resolve(res.trustSignals || {}));
-    } catch { resolve({}); }
-  });
+async function getTrustSignals(url) {
+  if (state.currentTabId == null) return {};
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "GET_TRUST_SIGNALS", tabId: state.currentTabId, url });
+    return result && !result.error ? result : {};
+  } catch { return {}; }
 }
 
 async function runScan() {
@@ -666,6 +679,7 @@ async function runScan() {
     return;
   }
 
+  const revision = ++state.scanRevision;
   state.activeScanUrl = scanUrl;
   setLoading();
   urlDisplay.value = presentUrl(scanUrl);
@@ -673,12 +687,12 @@ async function runScan() {
   try {
     clearCachedResponse("/predict", { url: scanUrl });
     clearCachedResponse("/seller-insights", { url: scanUrl });
-    const signals = await getTrustSignals();
+    const signals = await getTrustSignals(scanUrl);
     const response = await postJsonCached("/predict", { url: scanUrl, signals }, SCAN_CACHE_TTL_MS);
-    if (state.activeScanUrl !== scanUrl) return;
+    if (state.scanRevision !== revision) return;
     applyAnalysis(response.data, scanUrl, response);
   } catch (err) {
-    if (state.activeScanUrl !== scanUrl) return;
+    if (state.scanRevision !== revision) return;
     setError(`Could not reach backend: ${err.message}`);
   }
 }
@@ -689,7 +703,7 @@ function renderSellerLoading() {
     <div class="seller-item">
       <div class="seller-icon safe">${ICONS.phone}</div>
       <div class="seller-main">
-        <div class="seller-label">Mobile</div>
+        <div class="seller-label">Contact</div>
         <div class="seller-value retrieving">Scraping contact channels</div>
       </div>
     </div>
@@ -726,7 +740,7 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
     <div class="seller-icon ${iconTone}">${icon}</div>
     <div class="seller-main">
       <div class="seller-label-row">
-        <div class="seller-label">${label}</div>
+        <div class="seller-label">${escapeHtml(label)}</div>
         ${badge ? badgeMarkup(badge.tone, badge.text) : ""}
         ${metaHtml}
       </div>
@@ -747,21 +761,23 @@ function renderSellerInsights(response) {
 
   sellerInsightsList.innerHTML = "";
 
-  const rawPhone = contact.phone_numbers?.[0] || "";
-  const rawWhatsapp = contact.whatsapp_numbers?.[0] || "";
-  const mobileNumber = rawPhone || rawWhatsapp || "";
-  const firstPhone = formatSellerPhone(mobileNumber || "Not found");
-  const firstPhoneCopy = formatSellerPhone(mobileNumber);
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.phone, iconTone: "safe", label: "Mobile",
-    value: firstPhone, copyValue: firstPhoneCopy,
+  const contacts = contact.contacts || [
+    ...(contact.phone_numbers || []).map(value => ({ value, display: value, channel: "phone", purpose: "support" })),
+    ...(contact.whatsapp_numbers || []).map(value => ({ value, display: value, channel: "whatsapp", purpose: "support" })),
+  ];
+  if (!contacts.length) sellerInsightsList.appendChild(createSellerItem({
+    icon: ICONS.phone, label: "Phone / WhatsApp", value: "No number found in the pages checked",
   }));
-
-  const firstWhatsapp = formatPhoneWithFallback(contact.whatsapp_numbers?.[0] || "", "");
-  if (firstWhatsapp && firstWhatsapp !== "Not found") {
+  for (const record of contacts.slice(0, 8)) {
+    const channel = record.channel === "whatsapp" ? (record.whatsapp_only ? "WhatsApp only" : "WhatsApp") : record.channel === "fax" ? "Fax" : "Phone";
+    const role = { exchange: "Exchange", returns: "Returns", sales: "Sales", support: "Support" }[record.purpose] || "Contact";
+    const notes = [record.hours, record.conflict ? "Visible number differs from the site's phone link" : null,
+      record.validated === false ? "Country could not be confirmed" : null].filter(Boolean);
     sellerInsightsList.appendChild(createSellerItem({
-      icon: ICONS.whatsapp, iconTone: "whatsapp", label: "WhatsApp",
-      value: firstWhatsapp, copyValue: firstWhatsapp,
+      icon: record.channel === "whatsapp" ? ICONS.whatsapp : ICONS.phone,
+      label: `${role} - ${channel}`, valueHtml: escapeHtml(record.display || record.value)
+        + (notes.length ? `<small class="seller-evidence-note">${escapeHtml(notes.join(". "))}</small>` : ""),
+      copyValue: record.value, linkUrl: record.sources?.[0]?.url,
     }));
   }
 
@@ -772,38 +788,34 @@ function renderSellerInsights(response) {
     value: firstEmail,
     badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
     copyValue: contact.emails?.[0] || "",
+    linkUrl: contact.email_records?.[0]?.sources?.[0]?.url,
   }));
 
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.policy, label: "Return & Exchange Policy",
-    valueHtml: policySummaries.return_policy
-      ? highlightPolicySummary(policySummaries.return_policy)
-      : escapeHtml(contact.return_policy_url
-        ? "Policy detected, but details couldn't be summarised."
-        : "Not found"),
-    allowLink: false,
-  }));
-
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.policy, label: "Refund Policy",
-    valueHtml: policySummaries.refund_policy
-      ? highlightPolicySummary(policySummaries.refund_policy)
-      : escapeHtml(contact.refund_policy_url
-        ? "Policy detected, but details couldn't be summarised."
-        : "Not found"),
-    allowLink: false,
-  }));
-
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.policy, label: "Privacy Policy",
-    value: contact.privacy_policy_url ? "Open policy page" : "Not found",
-    linkUrl: contact.privacy_policy_url || "",
-  }));
-
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.policy, label: "Terms & Conditions",
-    value: contact.terms_conditions_url ? "Open policy page" : "Not found",
-    linkUrl: contact.terms_conditions_url || "",
+  const policyLabels = { return: "Return Policy", exchange: "Exchange Policy", refund: "Refund Policy",
+    shipping: "Shipping Policy", cancellation: "Cancellation Policy", privacy: "Privacy Policy", terms: "Terms & Conditions" };
+  for (const [kind, label] of Object.entries(policyLabels)) {
+    const document = analysis.policies?.[kind];
+    const legacyUrl = contact[kind === "terms" ? "terms_conditions_url" : `${kind}_policy_url`];
+    let valueHtml;
+    if (document?.facts?.length) {
+      const facts = document.facts;
+      // Keep source order and adjacent conditions; do not isolate a fee or refund promise.
+      const renderFact = fact => `<p>${fact.context && fact.context !== fact.text ? `<small>${escapeHtml(fact.context)}</small><br>` : ""}${escapeHtml(fact.text)}</p>`;
+      valueHtml = `<small class="seller-evidence-note">Published source excerpts${document.multiple_sources ? " from multiple pages; terms may differ by offer" : ""}</small>`
+        + facts.slice(0, 3).map(renderFact).join("")
+        + (facts.length > 3 ? `<details><summary>All ${facts.length} extracted terms</summary>${facts.slice(3).map(renderFact).join("")}</details>` : "");
+      if (document.sources?.length > 1) valueHtml += document.sources.map((url, i) => /^https?:\/\//i.test(url)
+        ? `<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Source ${i + 1}</a></p>` : "").join("");
+    } else {
+      valueHtml = escapeHtml(document?.status === "discovered" || legacyUrl
+        ? "Link found; policy contents could not be verified."
+        : "Not found in the pages checked.");
+    }
+    sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
+      linkUrl: document?.source_url || legacyUrl || "" }));
+  }
+  if (analysis.scan_status?.status === "partial") sellerInsightsList.appendChild(createSellerItem({
+    icon: ICONS.policy, label: "Scan coverage", value: "Some pages were unavailable or could not be checked. Missing information is not proof that the store does not publish it.",
   }));
 
   const registeredTo = meta.organization || meta.registrant_name || "Unknown";
@@ -833,7 +845,7 @@ function handleSellerListAction(event) {
         button.innerHTML = ICONS.copy;
       }, 850);
     }).catch(() => { });
-  } else if (kind === "external" && payload) {
+  } else if (kind === "external" && /^https?:\/\//i.test(payload)) {
     chrome.tabs.create({ url: payload });
   }
 }
@@ -843,9 +855,6 @@ async function toggleSellerInsights() {
   const willOpen = sellerInsightsPanel.classList.contains("hidden");
   if (!willOpen) { collapseSellerInsights(); return; }
 
-  // Always clear old content to prevent stale data from previous scans
-  sellerInsightsList.innerHTML = "";
-
   sellerInsightsBtn.classList.add("open");
   sellerInsightsBtn.setAttribute("aria-expanded", "true");
   sellerInsightsPanel.classList.remove("hidden");
@@ -854,54 +863,30 @@ async function toggleSellerInsights() {
 
   if (state.sellerInsightsLoadedFor === state.lastScannedUrl) return;
 
+  sellerInsightsList.innerHTML = "";
   renderSellerLoading();
+  const fetchUrl = state.lastScannedUrl;
+  const revision = state.scanRevision;
   try {
-    const fetchUrl = state.lastScannedUrl;
-    const signals = await getTrustSignals();
+    const signals = await getTrustSignals(fetchUrl);
     const response = await postJsonCached("/seller-insights", { url: fetchUrl, signals }, DETAIL_CACHE_TTL_MS);
 
-    if (state.lastScannedUrl !== fetchUrl) return;
+    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision) return;
 
-    // Update analysis state with deep-scan data (for seller details, policies, etc.)
-    // but do NOT override the displayed score with the deep-scan's recalculated threat_score.
     if (response.data.analysis) {
-      state.lastAnalysis = response.data.analysis;
-      state.pendingExplanation = "";
-      state.aiSummaryRevealed = false;
-      threatExpl.classList.remove("hidden");
+      applyAnalysis(response.data.analysis, fetchUrl);
+      setCachedResponse("/predict", { url: fetchUrl }, response.data.analysis, SCAN_CACHE_TTL_MS);
+      sellerInsightsBtn.classList.add("open");
+      sellerInsightsBtn.setAttribute("aria-expanded", "true");
+      sellerInsightsPanel.classList.remove("hidden");
+      sellerInsightsPanel.classList.add("revealed");
     }
-
     renderSellerInsights(response.data);
-    const contact = (response.data.analysis || state.lastAnalysis)?.contact_signals || {};
-    const transparencyLevel = showSellerTransparencyBadge(contact);
-
-    /* ── Adjust displayed score based on seller transparency ──
-     *  Uses the ORIGINAL /predict score as the base (not the deep-scan score),
-     *  so the user sees the score change only due to transparency.
-     *
-     *  Weak     → +0.15 penalty  (seller is unreachable → score decreases)
-     *  Moderate → no change
-     *  Strong   → −0.05 bonus    (seller is fully transparent → score increases)
-     *  Clamped to [0, 1] and re-rendered on the ring & verdict.
-     */
-    const baseScore = state.initialThreatScore;
-    if (typeof baseScore === "number") {
-      let adjusted = baseScore;
-      if (transparencyLevel === "weak") adjusted += 0.15;
-      else if (transparencyLevel === "strong") adjusted -= 0.05;
-      adjusted = Math.max(0, Math.min(1, adjusted));
-
-      if (adjusted !== baseScore) {
-        const newVerdict = adjusted > 0.5 ? "High Risk" : adjusted > 0.3 ? "Medium Risk" : "Safe";
-        animateRing(adjusted);
-        setVerdict(newVerdict, adjusted);
-        renderIndicators(state.lastScannedUrl, state.lastAnalysis, adjusted);
-      }
-    }
+    showSellerTransparencyBadge(state.lastAnalysis?.contact_signals || {}, state.lastAnalysis?.scan_status);
 
     state.sellerInsightsLoadedFor = state.lastScannedUrl;
   } catch (err) {
-    if (state.lastScannedUrl !== fetchUrl) return;
+    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision) return;
     sellerInsightsList.innerHTML = `<div class="seller-item">
       <div class="seller-icon">${ICONS.policy}</div>
       <div class="seller-main">
@@ -966,8 +951,10 @@ async function toggleAiSummary() {
 
   explanationText.textContent = "Generating AI Summary...";
 
+  const fetchUrl = state.lastScannedUrl;
+  const revision = state.scanRevision;
+  const analysis = state.lastAnalysis;
   try {
-    const fetchUrl = state.lastScannedUrl;
     const payload = {
       url: fetchUrl,
       threat_score: state.lastAnalysis.threat_score,
@@ -978,13 +965,14 @@ async function toggleAiSummary() {
     };
     const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
 
-    if (state.lastScannedUrl !== fetchUrl) return;
+    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision) return;
 
+    if (state.lastAnalysis !== analysis) return;
     state.pendingExplanation = response.data.explanation || "No explanation available.";
     state.aiSummaryRevealed = true;
     typeText(explanationText, state.pendingExplanation, 12);
   } catch (err) {
-    if (state.lastScannedUrl !== fetchUrl) return;
+    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision || state.lastAnalysis !== analysis) return;
     explanationText.textContent = "Failed to generate AI summary.";
   }
 }
@@ -993,6 +981,7 @@ async function hydrateCurrentTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     state.currentTabUrl = tab?.url || "";
+    state.currentTabId = tab?.id ?? null;
     if (state.currentTabUrl
       && !/^chrome:|^about:|^edge:|^chrome-extension:/i.test(state.currentTabUrl)
       && !urlDisplay.value.trim()) {
@@ -1001,7 +990,7 @@ async function hydrateCurrentTab() {
   } catch { state.currentTabUrl = ""; }
 }
 
-function restoreRecentScanForCurrentTab() {
+async function restoreRecentScanForCurrentTab() {
   if (!state.currentTabUrl
     || /^(chrome|about|edge|chrome-extension):/i.test(state.currentTabUrl)) return;
 
@@ -1009,7 +998,15 @@ function restoreRecentScanForCurrentTab() {
   if (!scanUrl) return;
 
   const cachedEntry = getCachedResponse("/predict", { url: scanUrl });
-  if (!cachedEntry?.data) return;
+  if (!cachedEntry?.data) {
+    try {
+      const entry = await chrome.runtime.sendMessage({ type: "GET_RECENT_SCAN", tabId: state.currentTabId, url: scanUrl });
+      if (entry?.analysis && state.scanRevision === 0) {
+        applyAnalysis(entry.analysis, scanUrl, { fromCache: true, savedAt: entry.savedAt });
+      }
+    } catch { }
+    return;
+  }
 
   urlDisplay.value = presentUrl(state.currentTabUrl);
   applyAnalysis(cachedEntry.data, cachedEntry.data.url || scanUrl, {
@@ -1020,10 +1017,11 @@ function restoreRecentScanForCurrentTab() {
 
 /* ── Bootstrap ── */
 document.addEventListener("DOMContentLoaded", async () => {
+  document.getElementById("extension-version").textContent = `ThreatLens v${chrome.runtime.getManifest().version}`;
   loadThemePreference();
   setIdle();
   await hydrateCurrentTab();
-  restoreRecentScanForCurrentTab();
+  await restoreRecentScanForCurrentTab();
 
   fullUrlToggle.addEventListener("change", () => {
     updateScanModeLabel();
