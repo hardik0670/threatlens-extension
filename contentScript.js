@@ -117,13 +117,14 @@ function collectSellerSignals() {
         result.contactBlocks.push({ text, ...(href ? { href: href.slice(0, 1000) } : {}) });
         if (result.contactBlocks.length >= 60) { result.evidenceTruncated = true; break; }
     }
-    if (/policy|policies|refund|return|exchange|shipping|delivery|cancellation|privacy|terms/i.test(source.pathname + " " + document.title)) {
+    if (/policy|policies|refund|return|exchange|shipping|delivery|cancellation|privacy|terms|faqs?/i.test(source.pathname + " " + document.title)) {
         const main = document.querySelector(".shopify-policy__body, main, [role='main'], article, #MainContent");
         let total = 0;
         if (main) for (const el of main.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,tr")) {
             if (!visible(el) || el.closest("nav, footer, header, aside") || (el.tagName === "P" && el.closest("li, tr"))) continue;
             const text = compact(el);
-            if (!text || text.length > 1500) continue;
+            if (!text) continue;
+            if (text.length > 1500) { result.evidenceTruncated = true; continue; }
             total += text.length;
             if (total > 40000) { result.evidenceTruncated = true; break; }
             result.policyBlocks.push({ text, level: /^H[1-6]$/.test(el.tagName) ? Number(el.tagName[1]) : 0 });

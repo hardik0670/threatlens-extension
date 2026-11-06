@@ -75,6 +75,32 @@ test('seller actions reject unsafe URLs and open validated phone URIs', () => {
   assert.deepEqual(opened, ['tel:+919111553117']);
 });
 
+test('alternative policy sources remain clickable and privacy emails are labelled', () => {
+  const { context, element } = popup();
+  vm.runInContext(`renderSellerInsights({analysis: {contact_signals: {
+    emails:['privacy@example.com'], email_records:[{value:'privacy@example.com', purpose:'privacy'}]
+  }, policies: {return: {status:'extracted', source_url:'https://store.example/returns',
+    alternative_sources:[{source_url:'https://store.example/refunds'}]}},
+    policy_summaries:{return_policy:'Returns within 7 days.'}}})`, context);
+  const rows = element('seller-insights-list').children;
+  assert.match(rows[1].innerHTML, /Privacy contact/);
+  assert.match(rows[2].innerHTML, /terms may differ/);
+  const links = rows[2].querySelector('.seller-actions').children;
+  assert.deepEqual(links.map(button => button.dataset.payload), ['https://store.example/returns', 'https://store.example/refunds']);
+  assert.match(links[1].title, /other Return Policy source/);
+});
+
+test('oversized browser policy blocks explicitly mark evidence incomplete', () => {
+  const longBlock = {tagName:'P', innerText:'Returns are accepted. '.repeat(100),
+    closest: () => null, getClientRects: () => [1]};
+  const context = vm.createContext({URL, console, location: {href:'https://store.example/refund-policy'},
+    window: {addEventListener() {}}, Node: {ELEMENT_NODE:1}, MutationObserver: class {observe() {}},
+    document: {title:'Refund policy', readyState:'loading', body:{},
+      querySelectorAll: () => [], querySelector: () => ({querySelectorAll: () => [longBlock]})}});
+  vm.runInContext(fs.readFileSync(path.join(root, 'contentScript.js'), 'utf8'), context);
+  assert.equal(vm.runInContext('collectSellerSignals().evidenceTruncated', context), true);
+});
+
 test('page signals cannot leak across tabs, origins, or full URLs', async () => {
   const { send } = background();
   await send({ type: 'TRUST_SIGNALS', data: { hasContact: true } }, { tab: { id: 1 }, frameId: 0, url: 'https://shop.example.com/item' });

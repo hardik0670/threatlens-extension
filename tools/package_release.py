@@ -15,7 +15,7 @@ WORKSPACE = ROOT.parent
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check-live", action="store_true", help="Fail unless production advertises seller-v2")
+    parser.add_argument("--check-live", action="store_true", help="Require seller-v2 and the current API release or newer")
     args = parser.parse_args()
     manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
     version = manifest["version"]
@@ -52,6 +52,8 @@ def main():
             live = json.load(response)
         if live.get("extraction_version") != "seller-v2":
             raise SystemExit("Release blocked: deploy the seller-v2 API before uploading the extension.")
+        if tuple(map(int, live.get("version", "0").split("."))) < tuple(map(int, version.split("."))):
+            raise SystemExit(f"Release blocked: API {version} or newer must be deployed first.")
     destination = WORKSPACE / "releases"
     destination.mkdir(exist_ok=True)
     stage = destination / f"ThreatLens-{version}"
@@ -71,6 +73,7 @@ def main():
         assert set(output.namelist()) == names
         assert json.loads(output.read("manifest.json"))["version"] == version
     report = {"version": version, "api": bases[0], "required_extraction_version": "seller-v2",
+              "required_api_version": version, "production_version": live.get("version") if live else None,
               "production_verified": live is not None, "files": len(files), "bytes": archive.stat().st_size,
               "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "archive": archive.name}
     (destination / f"ThreatLens-{version}-package.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

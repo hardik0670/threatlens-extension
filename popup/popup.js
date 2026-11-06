@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-links-v2";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v3";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -732,7 +732,7 @@ function badgeMarkup(tone, text) {
   return `<span class="seller-badge ${tone}">${tone === "safe" ? ICONS.check : ICONS.warning} ${text}</span>`;
 }
 
-function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, linkTitle, allowLink = true }) {
+function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, linkTitle, alternativeLinks = [], allowLink = true }) {
   const row = document.createElement("div");
   row.className = "seller-item";
   const plainValue = valueHtml ? "" : (value || "");
@@ -751,6 +751,9 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
   const actions = row.querySelector(".seller-actions");
   if (copyValue) actions.appendChild(makeIconButton("copy", copyValue));
   if (allowLink && linkUrl) actions.appendChild(makeIconButton("external", linkUrl, linkTitle || `Open ${label}`));
+  if (allowLink) for (const [index, source] of alternativeLinks.entries()) {
+    actions.appendChild(makeIconButton("external", source.source_url, `Open other ${label} source ${index + 1}`));
+  }
   return row;
 }
 
@@ -779,9 +782,9 @@ function renderSellerInsights(response) {
       label: `${role} - ${channel}`, valueHtml: escapeHtml(record.display || record.value)
         + (notes.length ? `<small class="seller-evidence-note">${escapeHtml(notes.join(". "))}</small>` : ""),
       copyValue: record.value,
-      linkUrl: record.channel === "whatsapp" && /^\+\d+$/.test(record.value)
+      linkUrl: record.validated !== false && record.channel === "whatsapp" && /^\+\d+$/.test(record.value)
         ? `https://wa.me/${record.value.slice(1)}`
-        : record.validated !== false && /^\+\d+(;ext=\d+)?$/.test(record.value) ? `tel:${record.value}` : "",
+        : record.channel !== "whatsapp" && record.validated !== false && /^\+\d+(;ext=\d+)?$/.test(record.value) ? `tel:${record.value}` : "",
       linkTitle: record.channel === "whatsapp" ? "Open WhatsApp" : "Call number",
     }));
   }
@@ -789,8 +792,10 @@ function renderSellerInsights(response) {
   const emails = [...new Set(contact.emails || [])].filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
   for (const firstEmail of emails.length ? emails : ["Not found"]) {
   const firstEmailEval = contact.email_evaluations?.find(item => item.email === firstEmail);
+  const emailRecord = contact.email_records?.find(item => item.value === firstEmail);
+  const emailLabel = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[emailRecord?.purpose] || "Mail";
   sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.email, iconTone: "safe", label: "Mail",
+    icon: ICONS.email, iconTone: firstEmailEval?.tone === "safe" ? "safe" : "", label: emailLabel,
     value: firstEmail,
     badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
     copyValue: firstEmail === "Not found" ? "" : firstEmail,
@@ -808,15 +813,17 @@ function renderSellerInsights(response) {
     const needsSummary = ["return", "exchange", "refund"].includes(kind);
     const summary = policySummaries[`${kind}_policy`];
     const unverified = document && !["extracted", "structured_only"].includes(document.status);
-    const valueHtml = unverified
+    let valueHtml = unverified
       ? escapeHtml(linkUrl ? "Link found; policy content could not be verified." : "Not found in the pages checked.")
       : needsSummary
       ? (summary ? highlightPolicySummary(summary) : escapeHtml(linkUrl
         ? "Policy detected, but details couldn't be summarised."
         : "Not found in the pages checked."))
       : escapeHtml(linkUrl ? "Open policy page" : "Not found in the pages checked.");
+    const alternativeLinks = (document?.alternative_sources || []).filter(source => source.source_url && source.source_url !== linkUrl).slice(0, 3);
+    if (alternativeLinks.length) valueHtml += `<small class="seller-evidence-note">Other policy pages were found; their terms may differ. ${needsSummary ? "This summary uses the main link." : "The main link opens the selected source."}</small>`;
     sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
-      linkUrl }));
+      linkUrl, alternativeLinks }));
   }
   if (analysis.scan_status?.status === "partial") sellerInsightsList.appendChild(createSellerItem({
     icon: ICONS.policy, label: "Scan coverage", value: "Some pages were unavailable or could not be checked. Missing information is not proof that the store does not publish it.",

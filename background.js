@@ -2,7 +2,7 @@ const API_BASE = "https://threatlens-api.vercel.app";
 
 const SIGNAL_TTL_MS = 5 * 60 * 1000;
 
-function signalKey(tabId) { return `page-signals-v2:${tabId}`; }
+function signalKey(tabId) { return `page-signals-v3:${tabId}`; }
 
 async function saveSignals(sender, signals) {
     if (sender.tab?.id == null || sender.frameId !== 0) return;
@@ -29,7 +29,7 @@ async function readSignals(tabId, url) {
 }
 
 chrome.tabs.onRemoved.addListener(tabId => {
-    chrome.storage.session.remove([signalKey(tabId), `page-scan-v2:${tabId}`]);
+    chrome.storage.session.remove([signalKey(tabId), `page-scan-v3:${tabId}`]);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -61,12 +61,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
             if (!response.ok) throw new Error(`API returned ${response.status}`);
             const analysis = await response.json();
-            await chrome.storage.session.set({ [`page-scan-v2:${sender.tab.id}`]: { url: scanUrl, analysis, savedAt: Date.now() } });
+            await chrome.storage.session.set({ [`page-scan-v3:${sender.tab.id}`]: { url: scanUrl, analysis, savedAt: Date.now() } });
             return analysis;
         }
         if (message.type === "GET_RECENT_SCAN") {
             if (sender.tab) return null;
-            const key = `page-scan-v2:${message.tabId}`;
+            const key = `page-scan-v3:${message.tabId}`;
             const entry = (await chrome.storage.session.get(key))[key];
             return entry && entry.url === message.url && Date.now() - entry.savedAt < SIGNAL_TTL_MS ? entry : null;
         }
