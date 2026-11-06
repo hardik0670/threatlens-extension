@@ -109,7 +109,7 @@ test('seller cards preserve contact roles, source actions, policy categories and
     ] }, policies: {
       exchange: { status:'extracted', source_url:'https://store.example/refund', facts:[{ text:'Within 48 hours <img onerror=alert(1)>', context:'Exchange Policy' }] },
       shipping: { status:'discovered', source_url:'https://store.example/shipping', facts:[] }
-    }, scan_status: {status:'partial'}
+    }, policy_summaries: { exchange_policy: 'Within 48 hours <img onerror=alert(1)>' }, scan_status: {status:'partial'}
   }});`, context);
   const rows = element('seller-insights-list').children;
   const markup = rows.map(r => r.innerHTML).join('\n');
@@ -119,11 +119,42 @@ test('seller cards preserve contact roles, source actions, policy categories and
   assert.match(markup, /Exchange Policy/);
   assert.match(markup, /48 hours &lt;img/);
   assert.doesNotMatch(markup, /<img onerror/);
-  assert.match(markup, /contents could not be verified/);
+  assert.match(markup, /Open policy page/);
   assert.match(markup, /Scan coverage/);
   const actions = rows[0].querySelector('.seller-actions').children;
   assert.equal(actions[0].dataset.payload, '+919150043065');
   assert.equal(actions[1].dataset.payload, 'https://store.example/contact');
+});
+
+test('only return, exchange and refund show summaries; other policies show links', () => {
+  const { context, element } = popup();
+  const kinds = ['return', 'exchange', 'refund', 'shipping', 'cancellation', 'privacy', 'terms'];
+  const policies = Object.fromEntries(kinds.map(kind => [kind, {
+    status: 'extracted', source_url: `https://store.example/${kind}`,
+    facts: Array.from({length: 5}, () => ({text: 'Raw source text must stay out of the panel'})),
+  }]));
+  const policy_summaries = Object.fromEntries(kinds.map(kind => [`${kind}_policy`, `Summary for ${kind}`]));
+  context.sellerResponse = { analysis: { policies, policy_summaries } };
+  vm.runInContext('renderSellerInsights(sellerResponse)', context);
+  const rows = element('seller-insights-list').children.slice(2, 9);
+  rows.forEach((row, i) => {
+    assert.match(row.innerHTML, i < 3 ? new RegExp(`Summary for ${kinds[i]}`) : /Open policy page/);
+    if (i >= 3) assert.doesNotMatch(row.innerHTML, /Summary for/);
+    assert.doesNotMatch(row.innerHTML, /Raw source text|Published source excerpts|extracted terms|<details>/);
+    assert.equal(row.querySelector('.seller-actions').children[0].dataset.payload, `https://store.example/${kinds[i]}`);
+  });
+});
+
+test('summary policies keep a link when a summary is unavailable', () => {
+  const { context, element } = popup();
+  vm.runInContext(`renderSellerInsights({analysis: {contact_signals: {
+    return_policy_url: 'https://store.example/returns',
+    privacy_policy_url: 'https://store.example/privacy'
+  }}})`, context);
+  const rows = element('seller-insights-list').children;
+  assert.match(rows[2].innerHTML, /couldn&#39;t be summarised/);
+  assert.equal(rows[2].querySelector('.seller-actions').children[0].dataset.payload, 'https://store.example/returns');
+  assert.match(rows[7].innerHTML, /Open policy page/);
 });
 
 test('partial evidence cannot earn a strong transparency badge', () => {

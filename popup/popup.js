@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-v2";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-policy-summaries-v1";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -796,23 +796,16 @@ function renderSellerInsights(response) {
   for (const [kind, label] of Object.entries(policyLabels)) {
     const document = analysis.policies?.[kind];
     const legacyUrl = contact[kind === "terms" ? "terms_conditions_url" : `${kind}_policy_url`];
-    let valueHtml;
-    if (document?.facts?.length) {
-      const facts = document.facts;
-      // Keep source order and adjacent conditions; do not isolate a fee or refund promise.
-      const renderFact = fact => `<p>${fact.context && fact.context !== fact.text ? `<small>${escapeHtml(fact.context)}</small><br>` : ""}${escapeHtml(fact.text)}</p>`;
-      valueHtml = `<small class="seller-evidence-note">Published source excerpts${document.multiple_sources ? " from multiple pages; terms may differ by offer" : ""}</small>`
-        + facts.slice(0, 3).map(renderFact).join("")
-        + (facts.length > 3 ? `<details><summary>All ${facts.length} extracted terms</summary>${facts.slice(3).map(renderFact).join("")}</details>` : "");
-      if (document.sources?.length > 1) valueHtml += document.sources.map((url, i) => /^https?:\/\//i.test(url)
-        ? `<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Source ${i + 1}</a></p>` : "").join("");
-    } else {
-      valueHtml = escapeHtml(document?.status === "discovered" || legacyUrl
-        ? "Link found; policy contents could not be verified."
-        : "Not found in the pages checked.");
-    }
+    const linkUrl = document?.source_url || legacyUrl || "";
+    const needsSummary = ["return", "exchange", "refund"].includes(kind);
+    const summary = policySummaries[`${kind}_policy`];
+    const valueHtml = needsSummary
+      ? (summary ? highlightPolicySummary(summary) : escapeHtml(linkUrl
+        ? "Policy detected, but details couldn't be summarised."
+        : "Not found in the pages checked."))
+      : escapeHtml(linkUrl ? "Open policy page" : "Not found in the pages checked.");
     sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
-      linkUrl: document?.source_url || legacyUrl || "" }));
+      linkUrl }));
   }
   if (analysis.scan_status?.status === "partial") sellerInsightsList.appendChild(createSellerItem({
     icon: ICONS.policy, label: "Scan coverage", value: "Some pages were unavailable or could not be checked. Missing information is not proof that the store does not publish it.",
