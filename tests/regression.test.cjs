@@ -48,6 +48,33 @@ function popup() {
   return { context, element };
 }
 
+test('seller email actions compose to each displayed address, never its evidence page', () => {
+  const { context, element } = popup();
+  vm.runInContext(`renderSellerInsights({analysis: {contact_signals: {
+    emails: ['hello@urbanmonkey.com', 'customer.care@urbanmonkey.com'],
+    email_records: [{sources: [{url: 'https://www.urbanmonkey.com/policies/refund-policy'}]}]
+  }}})`, context);
+  const buttons = element('seller-insights-list').children.flatMap(row => row.querySelector('.seller-actions').children);
+  const links = buttons.filter(button => button.dataset.kind === 'external');
+  assert.equal(links.length, 2);
+  assert.deepEqual(links.map(button => new URL(button.dataset.payload).searchParams.get('to')), ['hello@urbanmonkey.com', 'customer.care@urbanmonkey.com']);
+  assert.ok(links.every(button => new URL(button.dataset.payload).hostname === 'mail.google.com'));
+  const opened = [];
+  context.chrome.tabs = { create: args => opened.push(args.url) };
+  for (const button of links) context.handleSellerListAction({target: {closest: () => button}});
+  assert.deepEqual(opened, links.map(button => button.dataset.payload));
+});
+
+test('seller actions reject unsafe URLs and open validated phone URIs', () => {
+  const { context } = popup();
+  const opened = [];
+  context.chrome.tabs = { create: args => opened.push(args.url) };
+  for (const payload of ['javascript:alert(1)', 'data:text/html,bad', 'https://user:pass@example.com', 'tel:bad', 'tel:+919111553117']) {
+    context.handleSellerListAction({target: {closest: () => ({dataset: {kind: 'external', payload}})}});
+  }
+  assert.deepEqual(opened, ['tel:+919111553117']);
+});
+
 test('page signals cannot leak across tabs, origins, or full URLs', async () => {
   const { send } = background();
   await send({ type: 'TRUST_SIGNALS', data: { hasContact: true } }, { tab: { id: 1 }, frameId: 0, url: 'https://shop.example.com/item' });
@@ -119,11 +146,11 @@ test('seller cards preserve contact roles, source actions, policy categories and
   assert.match(markup, /Exchange Policy/);
   assert.match(markup, /48 hours &lt;img/);
   assert.doesNotMatch(markup, /<img onerror/);
-  assert.match(markup, /Open policy page/);
+  assert.match(markup, /policy content could not be verified/);
   assert.match(markup, /Scan coverage/);
   const actions = rows[0].querySelector('.seller-actions').children;
   assert.equal(actions[0].dataset.payload, '+919150043065');
-  assert.equal(actions[1].dataset.payload, 'https://store.example/contact');
+  assert.equal(actions[1].dataset.payload, 'https://wa.me/919150043065');
 });
 
 test('only return, exchange and refund show summaries; other policies show links', () => {

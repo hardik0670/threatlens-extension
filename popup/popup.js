@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-policy-summaries-v1";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-links-v2";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -716,14 +716,15 @@ function renderSellerLoading() {
     </div>`;
 }
 
-function makeIconButton(kind, payload) {
+function makeIconButton(kind, payload, title) {
   const button = document.createElement("button");
   button.className = `icon-button ${kind}`;
   button.type = "button";
   button.dataset.payload = payload;
   button.dataset.kind = kind;
   button.innerHTML = kind === "copy" ? ICONS.copy : ICONS.policy;
-  button.title = kind === "copy" ? "Copy" : "Open link";
+  button.title = title || (kind === "copy" ? "Copy" : "Open link");
+  button.setAttribute("aria-label", button.title);
   return button;
 }
 
@@ -731,7 +732,7 @@ function badgeMarkup(tone, text) {
   return `<span class="seller-badge ${tone}">${tone === "safe" ? ICONS.check : ICONS.warning} ${text}</span>`;
 }
 
-function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, allowLink = true }) {
+function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, linkTitle, allowLink = true }) {
   const row = document.createElement("div");
   row.className = "seller-item";
   const plainValue = valueHtml ? "" : (value || "");
@@ -749,7 +750,7 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
     <div class="seller-actions"></div>`;
   const actions = row.querySelector(".seller-actions");
   if (copyValue) actions.appendChild(makeIconButton("copy", copyValue));
-  if (allowLink && linkUrl) actions.appendChild(makeIconButton("external", linkUrl));
+  if (allowLink && linkUrl) actions.appendChild(makeIconButton("external", linkUrl, linkTitle || `Open ${label}`));
   return row;
 }
 
@@ -777,19 +778,26 @@ function renderSellerInsights(response) {
       icon: record.channel === "whatsapp" ? ICONS.whatsapp : ICONS.phone,
       label: `${role} - ${channel}`, valueHtml: escapeHtml(record.display || record.value)
         + (notes.length ? `<small class="seller-evidence-note">${escapeHtml(notes.join(". "))}</small>` : ""),
-      copyValue: record.value, linkUrl: record.sources?.[0]?.url,
+      copyValue: record.value,
+      linkUrl: record.channel === "whatsapp" && /^\+\d+$/.test(record.value)
+        ? `https://wa.me/${record.value.slice(1)}`
+        : record.validated !== false && /^\+\d+(;ext=\d+)?$/.test(record.value) ? `tel:${record.value}` : "",
+      linkTitle: record.channel === "whatsapp" ? "Open WhatsApp" : "Call number",
     }));
   }
 
-  const firstEmail = contact.emails?.[0] || "Not found";
-  const firstEmailEval = contact.email_evaluations?.[0];
+  const emails = [...new Set(contact.emails || [])].filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
+  for (const firstEmail of emails.length ? emails : ["Not found"]) {
+  const firstEmailEval = contact.email_evaluations?.find(item => item.email === firstEmail);
   sellerInsightsList.appendChild(createSellerItem({
     icon: ICONS.email, iconTone: "safe", label: "Mail",
     value: firstEmail,
     badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
-    copyValue: contact.emails?.[0] || "",
-    linkUrl: contact.email_records?.[0]?.sources?.[0]?.url,
+    copyValue: firstEmail === "Not found" ? "" : firstEmail,
+    linkUrl: firstEmail === "Not found" ? "" : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(firstEmail)}`,
+    linkTitle: "Compose in Gmail",
   }));
+  }
 
   const policyLabels = { return: "Return Policy", exchange: "Exchange Policy", refund: "Refund Policy",
     shipping: "Shipping Policy", cancellation: "Cancellation Policy", privacy: "Privacy Policy", terms: "Terms & Conditions" };
@@ -799,7 +807,10 @@ function renderSellerInsights(response) {
     const linkUrl = document?.source_url || legacyUrl || "";
     const needsSummary = ["return", "exchange", "refund"].includes(kind);
     const summary = policySummaries[`${kind}_policy`];
-    const valueHtml = needsSummary
+    const unverified = document && !["extracted", "structured_only"].includes(document.status);
+    const valueHtml = unverified
+      ? escapeHtml(linkUrl ? "Link found; policy content could not be verified." : "Not found in the pages checked.")
+      : needsSummary
       ? (summary ? highlightPolicySummary(summary) : escapeHtml(linkUrl
         ? "Policy detected, but details couldn't be summarised."
         : "Not found in the pages checked."))
@@ -838,8 +849,12 @@ function handleSellerListAction(event) {
         button.innerHTML = ICONS.copy;
       }, 850);
     }).catch(() => { });
-  } else if (kind === "external" && /^https?:\/\//i.test(payload)) {
-    chrome.tabs.create({ url: payload });
+  } else if (kind === "external") {
+    try {
+      const target = new URL(payload);
+      const web = ["https:", "http:"].includes(target.protocol) && !target.username && !target.password;
+      if (web || /^tel:\+\d+(;ext=\d+)?$/.test(payload)) chrome.tabs.create({ url: payload });
+    } catch { /* Ignore malformed or unsafe destinations. */ }
   }
 }
 

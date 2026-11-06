@@ -1289,7 +1289,8 @@ body[data-theme="dark"] .seller-inline-chip.whatsapp-chip {
         transform var(--t-fast) ease;
 }
 
-.seller-item:hover .seller-actions {
+  .seller-item:hover .seller-actions,
+  .seller-item:focus-within .seller-actions {
     opacity: 1;
     transform: translateX(0);
 }
