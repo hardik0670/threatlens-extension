@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v3";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v4";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -757,6 +757,22 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
   return row;
 }
 
+// Canonical values from extraction keep country codes and extensions distinct.
+function groupSellerContacts(records) {
+  const groups = new Map();
+  for (const record of records) {
+    const key = (record.value || "").replace(/[\s().-]/g, "");
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  return [...groups.values()].map(records => {
+    const whatsappOnly = records.some(record => record.whatsapp_only);
+    const usable = records.filter(record => !(whatsappOnly && record.channel === "phone"));
+    return { records: usable, whatsappOnly };
+  });
+}
+
 function renderSellerInsights(response) {
   const analysis = response.analysis || state.lastAnalysis;
   const contact = analysis.contact_signals || {};
@@ -764,45 +780,6 @@ function renderSellerInsights(response) {
   const policySummaries = analysis.policy_summaries || {};
 
   sellerInsightsList.innerHTML = "";
-
-  const contacts = contact.contacts || [
-    ...(contact.phone_numbers || []).map(value => ({ value, display: value, channel: "phone", purpose: "support" })),
-    ...(contact.whatsapp_numbers || []).map(value => ({ value, display: value, channel: "whatsapp", purpose: "support" })),
-  ];
-  if (!contacts.length) sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.phone, label: "Phone / WhatsApp", value: "No number found in the pages checked",
-  }));
-  for (const record of contacts.slice(0, 8)) {
-    const channel = record.channel === "whatsapp" ? (record.whatsapp_only ? "WhatsApp only" : "WhatsApp") : record.channel === "fax" ? "Fax" : "Phone";
-    const role = { exchange: "Exchange", returns: "Returns", sales: "Sales", support: "Support" }[record.purpose] || "Contact";
-    const notes = [record.hours, record.conflict ? "Visible number differs from the site's phone link" : null,
-      record.validated === false ? "Country could not be confirmed" : null].filter(Boolean);
-    sellerInsightsList.appendChild(createSellerItem({
-      icon: record.channel === "whatsapp" ? ICONS.whatsapp : ICONS.phone,
-      label: `${role} - ${channel}`, valueHtml: escapeHtml(record.display || record.value)
-        + (notes.length ? `<small class="seller-evidence-note">${escapeHtml(notes.join(". "))}</small>` : ""),
-      copyValue: record.value,
-      linkUrl: record.validated !== false && record.channel === "whatsapp" && /^\+\d+$/.test(record.value)
-        ? `https://wa.me/${record.value.slice(1)}`
-        : record.channel !== "whatsapp" && record.validated !== false && /^\+\d+(;ext=\d+)?$/.test(record.value) ? `tel:${record.value}` : "",
-      linkTitle: record.channel === "whatsapp" ? "Open WhatsApp" : "Call number",
-    }));
-  }
-
-  const emails = [...new Set(contact.emails || [])].filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
-  for (const firstEmail of emails.length ? emails : ["Not found"]) {
-  const firstEmailEval = contact.email_evaluations?.find(item => item.email === firstEmail);
-  const emailRecord = contact.email_records?.find(item => item.value === firstEmail);
-  const emailLabel = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[emailRecord?.purpose] || "Mail";
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.email, iconTone: firstEmailEval?.tone === "safe" ? "safe" : "", label: emailLabel,
-    value: firstEmail,
-    badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
-    copyValue: firstEmail === "Not found" ? "" : firstEmail,
-    linkUrl: firstEmail === "Not found" ? "" : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(firstEmail)}`,
-    linkTitle: "Compose in Gmail",
-  }));
-  }
 
   const policyLabels = { return: "Return Policy", exchange: "Exchange Policy", refund: "Refund Policy",
     shipping: "Shipping Policy", cancellation: "Cancellation Policy", privacy: "Privacy Policy", terms: "Terms & Conditions" };
@@ -825,6 +802,58 @@ function renderSellerInsights(response) {
     sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
       linkUrl, alternativeLinks }));
   }
+
+  const contacts = contact.contacts || [
+    ...(contact.phone_numbers || []).map(value => ({ value, display: value, channel: "phone", purpose: "support" })),
+    ...(contact.whatsapp_numbers || []).map(value => ({ value, display: value, channel: "whatsapp", purpose: "support" })),
+  ];
+  if (!contacts.length) sellerInsightsList.appendChild(createSellerItem({
+    icon: ICONS.phone, label: "Phone / WhatsApp", value: "No number found in the pages checked",
+  }));
+  for (const group of groupSellerContacts(contacts)) {
+    const records = group.records;
+    if (!records.length) continue;
+    const record = records[0];
+    const channels = [...new Set(records.map(r => r.channel))];
+    const roles = [...new Set(records.map(r => ({ exchange: "Exchange", returns: "Returns", sales: "Sales", support: "Support" }[r.purpose] || "Contact")))];
+    const channel = group.whatsappOnly ? "WhatsApp only" : channels.map(c => c === "whatsapp" ? "WhatsApp" : c === "fax" ? "Fax" : "Phone").join(" / ");
+    const notes = [...new Set(records.map(r => r.hours).filter(Boolean))];
+    if (records.some(r => r.conflict)) notes.push("Visible number differs from the site's phone link");
+    if (records.some(r => r.validated === false)) notes.push("Country could not be confirmed");
+    const row = createSellerItem({
+      icon: channels.includes("whatsapp") ? ICONS.whatsapp : ICONS.phone,
+      label: `${roles.join(" / ")} - ${channel}`,
+      valueHtml: escapeHtml(record.display || record.value)
+        + (notes.length ? `<small class="seller-evidence-note">${escapeHtml(notes.join(". "))}</small>` : ""),
+      copyValue: record.value,
+    });
+    const actions = row.querySelector(".seller-actions");
+    for (const channel of channels) {
+      const target = records.find(r => r.channel === channel && r.validated !== false);
+      if (!target) continue;
+      if (channel === "whatsapp" && /^\+\d+$/.test(target.value))
+        actions.appendChild(makeIconButton("external", `https://wa.me/${target.value.slice(1)}`, "Open WhatsApp"));
+      else if (channel === "phone" && /^\+\d+(;ext=\d+)?$/.test(target.value))
+        actions.appendChild(makeIconButton("external", `tel:${target.value}`, "Call number"));
+    }
+    sellerInsightsList.appendChild(row);
+  }
+
+  const emails = [...new Set(contact.emails || [])].filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
+  for (const firstEmail of emails.length ? emails : ["Not found"]) {
+  const firstEmailEval = contact.email_evaluations?.find(item => item.email === firstEmail);
+  const emailRecord = contact.email_records?.find(item => item.value === firstEmail);
+  const emailLabel = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[emailRecord?.purpose] || "Mail";
+  sellerInsightsList.appendChild(createSellerItem({
+    icon: ICONS.email, iconTone: firstEmailEval?.tone === "safe" ? "safe" : "", label: emailLabel,
+    value: firstEmail,
+    badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
+    copyValue: firstEmail === "Not found" ? "" : firstEmail,
+    linkUrl: firstEmail === "Not found" ? "" : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(firstEmail)}`,
+    linkTitle: "Compose in Gmail",
+  }));
+  }
+
   if (analysis.scan_status?.status === "partial") sellerInsightsList.appendChild(createSellerItem({
     icon: ICONS.policy, label: "Scan coverage", value: "Some pages were unavailable or could not be checked. Missing information is not proof that the store does not publish it.",
   }));

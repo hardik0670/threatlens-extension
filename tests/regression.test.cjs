@@ -83,9 +83,9 @@ test('alternative policy sources remain clickable and privacy emails are labelle
     alternative_sources:[{source_url:'https://store.example/refunds'}]}},
     policy_summaries:{return_policy:'Returns within 7 days.'}}})`, context);
   const rows = element('seller-insights-list').children;
-  assert.match(rows[1].innerHTML, /Privacy contact/);
-  assert.match(rows[2].innerHTML, /terms may differ/);
-  const links = rows[2].querySelector('.seller-actions').children;
+  assert.match(rows[8].innerHTML, /Privacy contact/);
+  assert.match(rows[0].innerHTML, /terms may differ/);
+  const links = rows[0].querySelector('.seller-actions').children;
   assert.deepEqual(links.map(button => button.dataset.payload), ['https://store.example/returns', 'https://store.example/refunds']);
   assert.match(links[1].title, /other Return Policy source/);
 });
@@ -174,7 +174,7 @@ test('seller cards preserve contact roles, source actions, policy categories and
   assert.doesNotMatch(markup, /<img onerror/);
   assert.match(markup, /policy content could not be verified/);
   assert.match(markup, /Scan coverage/);
-  const actions = rows[0].querySelector('.seller-actions').children;
+  const actions = rows[7].querySelector('.seller-actions').children;
   assert.equal(actions[0].dataset.payload, '+919150043065');
   assert.equal(actions[1].dataset.payload, 'https://wa.me/919150043065');
 });
@@ -189,7 +189,7 @@ test('only return, exchange and refund show summaries; other policies show links
   const policy_summaries = Object.fromEntries(kinds.map(kind => [`${kind}_policy`, `Summary for ${kind}`]));
   context.sellerResponse = { analysis: { policies, policy_summaries } };
   vm.runInContext('renderSellerInsights(sellerResponse)', context);
-  const rows = element('seller-insights-list').children.slice(2, 9);
+  const rows = element('seller-insights-list').children.slice(0, 7);
   rows.forEach((row, i) => {
     assert.match(row.innerHTML, i < 3 ? new RegExp(`Summary for ${kinds[i]}`) : /Open policy page/);
     if (i >= 3) assert.doesNotMatch(row.innerHTML, /Summary for/);
@@ -205,9 +205,9 @@ test('summary policies keep a link when a summary is unavailable', () => {
     privacy_policy_url: 'https://store.example/privacy'
   }}})`, context);
   const rows = element('seller-insights-list').children;
-  assert.match(rows[2].innerHTML, /couldn&#39;t be summarised/);
-  assert.equal(rows[2].querySelector('.seller-actions').children[0].dataset.payload, 'https://store.example/returns');
-  assert.match(rows[7].innerHTML, /Open policy page/);
+  assert.match(rows[0].innerHTML, /couldn&#39;t be summarised/);
+  assert.equal(rows[0].querySelector('.seller-actions').children[0].dataset.payload, 'https://store.example/returns');
+  assert.match(rows[5].innerHTML, /Open policy page/);
 });
 
 test('partial evidence cannot earn a strong transparency badge', () => {
@@ -242,4 +242,33 @@ test('release version and production API permissions match the popup and worker'
   const endpoints = ['background.js', 'popup/popup.js'].map(file => fs.readFileSync(path.join(root, file), 'utf8').match(/const API_BASE = "([^"]+)"/)[1]);
   assert.equal(endpoints[0], endpoints[1]);
   assert.ok(manifest.host_permissions.includes(`${endpoints[0]}/*`));
+});
+
+test('same number merges roles and channels while retaining both actions and distinct numbers', () => {
+  const { context, element } = popup();
+  context.records = [
+    {value:'+919111553117',channel:'phone',purpose:'support',hours:'11am - 7pm'},
+    {value:'+91 91115 53117',channel:'phone',purpose:'support',hours:'11am - 7pm'},
+    {value:'+919111553117',channel:'whatsapp',purpose:'exchange'},
+    {value:'+919270036788',channel:'phone',purpose:'exchange'},
+  ];
+  vm.runInContext('renderSellerInsights({analysis:{contact_signals:{contacts:records}}})', context);
+  const rows = element('seller-insights-list').children.filter(row => /Support|Exchange - Phone/.test(row.innerHTML));
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].innerHTML, /Support \/ Exchange - Phone \/ WhatsApp/);
+  assert.equal((rows[0].innerHTML.match(/11am - 7pm/g) || []).length, 1);
+  assert.deepEqual(rows[0].querySelector('.seller-actions').children.map(b => b.dataset.payload),
+    ['+919111553117', 'tel:+919111553117', 'https://wa.me/919111553117']);
+  assert.match(element('seller-insights-list').children[0].innerHTML, /Return Policy/);
+});
+
+test('WhatsApp-only suppresses stale call actions and extensions remain separate', () => {
+  const { context } = popup();
+  const groups = vm.runInContext(`groupSellerContacts([
+    {value:'+12125550198',channel:'phone'},
+    {value:'+12125550198',channel:'whatsapp',whatsapp_only:true},
+    {value:'+12125550198;ext=123',channel:'phone'}])`, context);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].records.length, 1);
+  assert.equal(groups[0].records[0].channel, 'whatsapp');
 });
