@@ -170,7 +170,7 @@ test('seller cards preserve contact roles, source actions, policy categories and
   assert.match(markup, /Exchange - Phone/);
   assert.match(markup, /Shipping Policy/);
   assert.match(markup, /Exchange Policy/);
-  assert.match(markup, /48 hours &lt;img/);
+  assert.match(markup, /48 hours<\/span> &lt;img/);
   assert.doesNotMatch(markup, /<img onerror/);
   assert.match(markup, /policy content could not be verified/);
   assert.match(markup, /Scan coverage/);
@@ -271,4 +271,24 @@ test('WhatsApp-only suppresses stale call actions and extensions remain separate
   assert.equal(groups.length, 2);
   assert.equal(groups[0].records.length, 1);
   assert.equal(groups[0].records[0].channel, 'whatsapp');
+});
+
+test('legacy international formats and mobile labels share one contact row', () => {
+  const { context } = popup();
+  const groups = vm.runInContext(`groupSellerContacts([
+    {value:'0091 91115 53117',channel:'mobile'},
+    {value:'919111553117',channel:'telephone'},
+    {value:'+919111553117',channel:'whatsapp'},
+    {value:'+449111553117',channel:'phone'}])`, context);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].records.length, 3);
+  assert.equal(groups[0].records[0].channel, 'phone');
+  assert.equal(groups[0].records[0].value, '+919111553117');
+});
+
+test('rupee fees and hour deadlines are visibly emphasized', () => {
+  const { context } = popup();
+  const html = vm.runInContext('highlightPolicySummary("1–3 products: ₹250. Within 48 hours.")', context);
+  assert.match(html, /policy-emphasis">₹250<\/span>/);
+  assert.match(html, /policy-emphasis">Within 48 hours<\/span>/);
 });

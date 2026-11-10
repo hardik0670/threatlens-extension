@@ -36,7 +36,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 let copiedButtonTimer = null;
 let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v4";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v5";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -260,6 +260,8 @@ function highlightPolicySummary(text) {
   const escaped = escapeHtml(text || "");
   if (!escaped) return "";
   const patterns = [
+    /[\u20b9$\u20ac\u00a3]\s*\d[\d,]*(?:\.\d+)?/g,
+    /\b(?:within\s+)?\d+\s*(?:working\s+|business\s+)?hours?\b/gi,
     /\bonly\s+(?:till|until|within)\s+\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
     /\bwithin\s+\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
     /\b\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
@@ -759,12 +761,20 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
 
 // Canonical values from extraction keep country codes and extensions distinct.
 function groupSellerContacts(records) {
+  const normalize = value => (value || "").replace(/^tel:/i, "")
+    .replace(/[\s().-]/g, "").replace(/^00/, "+")
+    .replace(/(?:ext\.?|x)(\d+)$/i, ";ext=$1").replace(/;;ext=/i, ";ext=");
+  // A countryless legacy value can match a published international value
+  // only by its complete digits, never a last-N-digit suffix guess.
+  const international = new Set(records.map(r => normalize(r.value)).filter(v => v.startsWith("+")));
   const groups = new Map();
   for (const record of records) {
-    const key = (record.value || "").replace(/[\s().-]/g, "");
+    let key = normalize(record.value);
+    if (!key.startsWith("+") && international.has("+" + key)) key = "+" + key;
     if (!key) continue;
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(record);
+    groups.get(key).push({ ...record, value: key,
+      channel: ["mobile", "telephone", "tel"].includes(record.channel) ? "phone" : record.channel });
   }
   return [...groups.values()].map(records => {
     const whatsappOnly = records.some(record => record.whatsapp_only);
