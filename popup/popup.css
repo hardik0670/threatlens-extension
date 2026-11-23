@@ -1344,6 +1344,16 @@ body[data-theme="dark"] .seller-inline-chip.whatsapp-chip {
     font-weight: 600;
 }
 
+.summary-points {
+    margin: 0;
+    padding-inline-start: 1.15em;
+    list-style: disc;
+}
+
+.summary-points li + li {
+    margin-top: 0.4rem;
+}
+
 /* ── Retrieving State ── */
 .retrieving {
     color: var(--color-ocean);

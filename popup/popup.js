@@ -34,9 +34,8 @@ const themeToggle = document.getElementById("theme-toggle");
 const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 
 let copiedButtonTimer = null;
-let aiTypingTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v5";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v6";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -257,28 +256,33 @@ function escapeHtml(value) {
 }
 
 function highlightPolicySummary(text) {
-  const escaped = escapeHtml(text || "");
-  if (!escaped) return "";
-  const patterns = [
-    /[\u20b9$\u20ac\u00a3]\s*\d[\d,]*(?:\.\d+)?/g,
-    /\b(?:within\s+)?\d+\s*(?:working\s+|business\s+)?hours?\b/gi,
-    /\bonly\s+(?:till|until|within)\s+\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
-    /\bwithin\s+\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
-    /\b\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b/gi,
-    /\b(?:rs\.?|inr)\s*\d+\b/gi,
-    /\b\d+\s*rupees?\b/gi,
-    /\b(?:non-refundable|not refundable|non returnable|non-returnable|final sale|store credit only|exchange only)\b/gi,
-    /\boriginal payment method\b/gi,
-    /\bstore credit\b/gi,
-    /\bbank transfer\b/gi,
-    /\bupi details\b/gi,
-    /\breplacement\b/gi,
-  ];
-  let output = escaped;
-  patterns.forEach(p => {
-    output = output.replace(p, m => `<span class="policy-emphasis">${m}</span>`);
-  });
-  return output;
+  const amount = String.raw`\d+(?:,\d+)*(?:\.\d+)?`;
+  const range = String.raw`${amount}(?:\s*(?:[-–—]|\bto\b)\s*${amount})?`;
+  const pattern = new RegExp(String.raw`(?:[₹$€£]|\b(?:Rs\.?|INR|USD|EUR|GBP)\s*)\s*${range}|\b${range}\s*(?:(?:(?:bank|business|working|calendar)\s+)*(?:hours?|days?|weeks?|months?|minutes?)|rupees?|INR|USD|EUR|GBP)\b|\b${range}\s*%`, "gi");
+  let output = "";
+  let offset = 0;
+  for (const match of text.matchAll(pattern)) {
+    output += escapeHtml(text.slice(offset, match.index));
+    output += `<span class="policy-emphasis">${escapeHtml(match[0])}</span>`;
+    offset = match.index + match[0].length;
+  }
+  return output + escapeHtml(text.slice(offset));
+}
+
+function renderSummaryPoints(summary, policy = false) {
+  const rows = summary.split(/\r?\n|[●•▪◦]/);
+  // Older responses supplied a single paragraph, sometimes with inline bullets.
+  const parts = rows.length > 1 ? rows : summary.split(/(?<!\bRs\.)(?<!\bNo\.)(?<=[.!?])\s+/i);
+  const points = [...new Set(parts.map(point => point.trim().replace(/^(?:[-*–—]\s+|\d+[.)]\s+)/, ""))
+    .filter(point => point && point.length <= 450))];
+  if (policy && !summary.includes("\n") && points.length > 5) {
+    const priority = point => /\b(?:fee|charge|cost|deduct)\w*\b|[₹$€£]/i.test(point) ? 0
+      : /\b(?:return|exchange) window\b|\bwithin\s+\d+/i.test(point) ? 1 : 2;
+    points.sort((first, second) => priority(first) - priority(second));
+  }
+  if (!points.length) return "";
+  const format = policy ? highlightPolicySummary : escapeHtml;
+  return `<ul class="summary-points">${points.slice(0, policy ? 5 : 3).map(point => `<li>${format(point)}</li>`).join("")}</ul>`;
 }
 
 function formatPhoneWithFallback(value, fallbackValue) {
@@ -799,16 +803,17 @@ function renderSellerInsights(response) {
     const linkUrl = document?.source_url || legacyUrl || "";
     const needsSummary = ["return", "exchange", "refund"].includes(kind);
     const summary = policySummaries[`${kind}_policy`];
+    const summaryHtml = needsSummary && typeof summary === "string" ? renderSummaryPoints(summary, true) : "";
     const unverified = document && !["extracted", "structured_only"].includes(document.status);
     let valueHtml = unverified
       ? escapeHtml(linkUrl ? "Link found; policy content could not be verified." : "Not found in the pages checked.")
       : needsSummary
-      ? (summary ? highlightPolicySummary(summary) : escapeHtml(linkUrl
+      ? (summaryHtml || escapeHtml(linkUrl
         ? "Policy detected, but details couldn't be summarised."
         : "Not found in the pages checked."))
       : escapeHtml(linkUrl ? "Open policy page" : "Not found in the pages checked.");
     const alternativeLinks = (document?.alternative_sources || []).filter(source => source.source_url && source.source_url !== linkUrl).slice(0, 3);
-    if (alternativeLinks.length) valueHtml += `<small class="seller-evidence-note">Other policy pages were found; their terms may differ. ${needsSummary ? "This summary uses the main link." : "The main link opens the selected source."}</small>`;
+    if (alternativeLinks.length) valueHtml += `<small class="seller-evidence-note">Other policy terms may differ.</small>`;
     sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
       linkUrl, alternativeLinks }));
   }
@@ -960,23 +965,6 @@ function collapseAiSummary() {
     aiSummaryPanel.classList.remove("revealed");
     aiSummaryPanel.classList.add("hidden");
   }
-  clearInterval(aiTypingTimer);
-  aiTypingTimer = null;
-}
-
-function typeText(element, text, speed = 12) {
-  element.textContent = "";
-  let i = 0;
-  clearInterval(aiTypingTimer);
-  aiTypingTimer = setInterval(() => {
-    if (i < text.length) {
-      element.textContent += text.charAt(i);
-      i++;
-    } else {
-      clearInterval(aiTypingTimer);
-      aiTypingTimer = null;
-    }
-  }, speed);
 }
 
 async function toggleAiSummary() {
@@ -993,12 +981,12 @@ async function toggleAiSummary() {
   requestAnimationFrame(() => aiSummaryPanel.classList.add("revealed"));
 
   if (state.aiSummaryRevealed && state.pendingExplanation) {
-    typeText(explanationText, state.pendingExplanation, 12);
+    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
     return;
   }
 
   if (state.pendingExplanation) {
-    typeText(explanationText, state.pendingExplanation, 12);
+    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
     state.aiSummaryRevealed = true;
     return;
   }
@@ -1024,7 +1012,7 @@ async function toggleAiSummary() {
     if (state.lastAnalysis !== analysis) return;
     state.pendingExplanation = response.data.explanation || "No explanation available.";
     state.aiSummaryRevealed = true;
-    typeText(explanationText, state.pendingExplanation, 12);
+    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
   } catch (err) {
     if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision || state.lastAnalysis !== analysis) return;
     explanationText.textContent = "Failed to generate AI summary.";

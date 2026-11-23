@@ -286,9 +286,15 @@ test('legacy international formats and mobile labels share one contact row', () 
   assert.equal(groups[0].records[0].value, '+919111553117');
 });
 
-test('rupee fees and hour deadlines are visibly emphasized', () => {
+test('only numeric policy terms are emphasized and the list is capped at five points', () => {
   const { context } = popup();
-  const html = vm.runInContext('highlightPolicySummary("1–3 products: ₹250. Within 48 hours.")', context);
+  const terms = ['Pickup fee ₹250.', 'Request within 48–72 hours.', 'Store credit only.',
+    '100 rupees non-refundable.', 'Keep the original tags.', 'This sixth point is omitted.'];
+  const html = vm.runInContext(`renderSummaryPoints(${JSON.stringify(terms.join('\n'))}, true)`, context);
+  assert.equal((html.match(/<li>/g) || []).length, 5);
   assert.match(html, /policy-emphasis">₹250<\/span>/);
-  assert.match(html, /policy-emphasis">Within 48 hours<\/span>/);
+  assert.match(html, /within <span class="policy-emphasis">48–72 hours<\/span>/);
+  assert.match(html, /policy-emphasis">100 rupees<\/span> non-refundable/);
+  assert.match(html, /<li>Store credit only\.<\/li>/);
+  assert.doesNotMatch(html, /sixth point/);
 });
