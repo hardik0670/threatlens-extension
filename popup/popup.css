@@ -1124,6 +1124,34 @@ body[data-theme="dark"] .seller-insights-panel {
     border-bottom: none;
 }
 
+.seller-item:has(+ .seller-contact-more) {
+    padding-bottom: 2px;
+    border-bottom: 0;
+}
+
+.seller-contact-more {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.seller-contact-more > summary {
+    width: fit-content;
+    margin-inline-start: calc(28px + var(--sp-3));
+    padding: 2px 0;
+    color: var(--color-ocean);
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+
+.seller-contact-more > summary:hover {
+    text-decoration: underline;
+}
+
+.seller-contact-more:not([open]) .seller-contact-collapse,
+.seller-contact-more[open] .seller-contact-expand {
+    display: none;
+}
+
 .seller-icon {
     width: 28px;
     height: 28px;
@@ -1295,6 +1323,12 @@ body[data-theme="dark"] .seller-inline-chip.whatsapp-chip {
     transform: translateX(0);
 }
 
+.seller-label-row > .seller-actions {
+    margin-inline-start: auto;
+    opacity: 1;
+    transform: none;
+}
+
 /* ── Icon Buttons ── */
 .icon-button {
     width: 26px;
@@ -1342,6 +1376,7 @@ body[data-theme="dark"] .seller-inline-chip.whatsapp-chip {
 .policy-emphasis {
     color: var(--color-danger);
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .summary-points {
@@ -1665,6 +1700,20 @@ body[data-theme="dark"] .ai-summary-panel {
     font-size: var(--text-sm);
     line-height: 1.65;
     color: var(--color-text-secondary);
+}
+
+.explanation-sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-3);
+    margin-top: var(--sp-2);
+    font-size: var(--text-xs);
+}
+
+.explanation-sources a {
+    color: var(--color-ocean);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .explanation-text:empty::after {

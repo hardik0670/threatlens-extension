@@ -31,7 +31,7 @@ function popup() {
     if (!elements.has(id)) elements.set(id, {
       value: '', checked: false, style: {}, dataset: {}, textContent: '', innerHTML: '',
       classList: { contains: () => true, add() {}, remove() {} },
-      children: [],
+      children: [], tagName: '',
       querySelector(selector) { return selector === '.seller-actions' ? element(`actions-${id}`) : null; }, querySelectorAll() { return []; },
       getAttribute() { return '42'; }, setAttribute() {}, appendChild(child) { this.children.push(child); },
     });
@@ -40,7 +40,9 @@ function popup() {
   const context = vm.createContext({
     URL, AbortSignal, console, Date, setInterval, clearInterval, setTimeout, clearTimeout,
     requestAnimationFrame: fn => fn(),
-    document: { getElementById: element, addEventListener() {}, createElement: () => element(Math.random()) },
+    document: { getElementById: element, addEventListener() {}, createElement(tagName) {
+      return Object.assign(element(Math.random()), { tagName });
+    } },
     localStorage: { getItem: () => null, setItem() {} },
     chrome: { runtime: { sendMessage: async () => ({}) } },
   });
@@ -48,13 +50,21 @@ function popup() {
   return { context, element };
 }
 
+function sellerRows(element) {
+  return element('seller-insights-list').children.flatMap(row =>
+    row.tagName === 'details' ? row.children.slice(1) : [row]);
+}
+
 test('seller email actions compose to each displayed address, never its evidence page', () => {
   const { context, element } = popup();
   vm.runInContext(`renderSellerInsights({analysis: {contact_signals: {
-    emails: ['hello@urbanmonkey.com', 'customer.care@urbanmonkey.com'],
+    emails: ['hello@urbanmonkey.com', ' HELLO@urbanmonkey.com ', 'customer.care@urbanmonkey.com'],
     email_records: [{sources: [{url: 'https://www.urbanmonkey.com/policies/refund-policy'}]}]
   }}})`, context);
-  const buttons = element('seller-insights-list').children.flatMap(row => row.querySelector('.seller-actions').children);
+  const details = element('seller-insights-list').children.find(row => row.tagName === 'details');
+  assert.match(details.children[0].innerHTML, /Show 1 more email/);
+  assert.equal(details.children.length, 2);
+  const buttons = sellerRows(element).flatMap(row => row.querySelector('.seller-actions').children);
   const links = buttons.filter(button => button.dataset.kind === 'external');
   assert.equal(links.length, 2);
   assert.deepEqual(links.map(button => new URL(button.dataset.payload).searchParams.get('to')), ['hello@urbanmonkey.com', 'customer.care@urbanmonkey.com']);
@@ -83,9 +93,9 @@ test('alternative policy sources remain clickable and privacy emails are labelle
     alternative_sources:[{source_url:'https://store.example/refunds'}]}},
     policy_summaries:{return_policy:'Returns within 7 days.'}}})`, context);
   const rows = element('seller-insights-list').children;
-  assert.match(rows[8].innerHTML, /Privacy contact/);
-  assert.match(rows[0].innerHTML, /terms may differ/);
-  const links = rows[0].querySelector('.seller-actions').children;
+  assert.match(rows[1].innerHTML, /Privacy contact/);
+  assert.doesNotMatch(rows[2].innerHTML, /terms may differ/);
+  const links = rows[2].querySelector('.seller-actions').children;
   assert.deepEqual(links.map(button => button.dataset.payload), ['https://store.example/returns', 'https://store.example/refunds']);
   assert.match(links[1].title, /other Return Policy source/);
 });
@@ -136,6 +146,31 @@ test('seller and AI network errors render without secondary ReferenceErrors', as
   assert.equal(element('threat-analysis-text').textContent, 'Failed to generate AI summary.');
 });
 
+test('AI summary sends fresh page signals and displays only same-site evidence links', async () => {
+  const { context, element } = popup();
+  vm.runInContext(`
+    state.lastScannedUrl = 'https://example.com';
+    state.lastAnalysis = {threat_score: 0.2, rule_summary: 'No contact details.'};
+    getTrustSignals = async () => ({sourceUrl: 'https://example.com'});
+    postJsonCached = async (path, payload) => {
+      globalThis.summaryRequest = {path, payload};
+      return {data: {explanation: 'The site publishes phone and email contact details.', sources: [
+        {url: 'https://www.example.com/contact', label: 'Contact page'},
+        {url: 'https://othersite.com/contact', label: 'Wrong site'},
+        {url: 'javascript:alert(1)', label: 'Unsafe URL'},
+      ]}};
+    };
+  `, context);
+  await vm.runInContext('toggleAiSummary()', context);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.summaryRequest)), {
+    path: '/explain', payload: {url: 'https://example.com', signals: {sourceUrl: 'https://example.com'}},
+  });
+  const markup = element('threat-analysis-text').innerHTML;
+  assert.match(markup, /phone and email contact details/);
+  assert.match(markup, /href="https:\/\/www\.example\.com\/contact"/);
+  assert.doesNotMatch(markup, /Wrong site|Unsafe URL|No contact details/);
+});
+
 test('seller analysis updates the same score used by AI summaries', async () => {
   const { context, element } = popup();
   vm.runInContext(`state.lastScannedUrl = 'https://example.com'; state.lastAnalysis = { threat_score: 0.8 };
@@ -164,7 +199,7 @@ test('seller cards preserve contact roles, source actions, policy categories and
       shipping: { status:'discovered', source_url:'https://store.example/shipping', facts:[] }
     }, policy_summaries: { exchange_policy: 'Within 48 hours <img onerror=alert(1)>' }, scan_status: {status:'partial'}
   }});`, context);
-  const rows = element('seller-insights-list').children;
+  const rows = sellerRows(element);
   const markup = rows.map(r => r.innerHTML).join('\n');
   assert.match(markup, /Support - WhatsApp only/);
   assert.match(markup, /Exchange - Phone/);
@@ -172,9 +207,8 @@ test('seller cards preserve contact roles, source actions, policy categories and
   assert.match(markup, /Exchange Policy/);
   assert.match(markup, /48 hours<\/span> &lt;img/);
   assert.doesNotMatch(markup, /<img onerror/);
-  assert.match(markup, /policy content could not be verified/);
-  assert.match(markup, /Scan coverage/);
-  const actions = rows[7].querySelector('.seller-actions').children;
+  assert.doesNotMatch(markup, /policy content could not be verified|Scan coverage/);
+  const actions = rows[0].querySelector('.seller-actions').children;
   assert.equal(actions[0].dataset.payload, '+919150043065');
   assert.equal(actions[1].dataset.payload, 'https://wa.me/919150043065');
 });
@@ -189,9 +223,9 @@ test('only return, exchange and refund show summaries; other policies show links
   const policy_summaries = Object.fromEntries(kinds.map(kind => [`${kind}_policy`, `Summary for ${kind}`]));
   context.sellerResponse = { analysis: { policies, policy_summaries } };
   vm.runInContext('renderSellerInsights(sellerResponse)', context);
-  const rows = element('seller-insights-list').children.slice(0, 7);
+  const rows = sellerRows(element).slice(2, 9);
   rows.forEach((row, i) => {
-    assert.match(row.innerHTML, i < 3 ? new RegExp(`Summary for ${kinds[i]}`) : /Open policy page/);
+    if (i < 3) assert.match(row.innerHTML, new RegExp(`Summary for ${kinds[i]}`));
     if (i >= 3) assert.doesNotMatch(row.innerHTML, /Summary for/);
     assert.doesNotMatch(row.innerHTML, /Raw source text|Published source excerpts|extracted terms|<details>/);
     assert.equal(row.querySelector('.seller-actions').children[0].dataset.payload, `https://store.example/${kinds[i]}`);
@@ -205,9 +239,9 @@ test('summary policies keep a link when a summary is unavailable', () => {
     privacy_policy_url: 'https://store.example/privacy'
   }}})`, context);
   const rows = element('seller-insights-list').children;
-  assert.match(rows[0].innerHTML, /couldn&#39;t be summarised/);
-  assert.equal(rows[0].querySelector('.seller-actions').children[0].dataset.payload, 'https://store.example/returns');
-  assert.match(rows[5].innerHTML, /Open policy page/);
+  assert.match(rows[2].innerHTML, /Return Policy/);
+  assert.equal(rows[2].querySelector('.seller-actions').children[0].dataset.payload, 'https://store.example/returns');
+  assert.match(rows[3].innerHTML, /Privacy Policy/);
 });
 
 test('partial evidence cannot earn a strong transparency badge', () => {
@@ -253,13 +287,17 @@ test('same number merges roles and channels while retaining both actions and dis
     {value:'+919270036788',channel:'phone',purpose:'exchange'},
   ];
   vm.runInContext('renderSellerInsights({analysis:{contact_signals:{contacts:records}}})', context);
-  const rows = element('seller-insights-list').children.filter(row => /Support|Exchange - Phone/.test(row.innerHTML));
+  const rows = sellerRows(element).filter(row => /Support|Exchange - Phone/.test(row.innerHTML));
   assert.equal(rows.length, 2);
   assert.match(rows[0].innerHTML, /Support \/ Exchange - Phone \/ WhatsApp/);
   assert.equal((rows[0].innerHTML.match(/11am - 7pm/g) || []).length, 1);
   assert.deepEqual(rows[0].querySelector('.seller-actions').children.map(b => b.dataset.payload),
     ['+919111553117', 'tel:+919111553117', 'https://wa.me/919111553117']);
-  assert.match(element('seller-insights-list').children[0].innerHTML, /Return Policy/);
+  const [first, extra, mail] = element('seller-insights-list').children;
+  assert.match(first.innerHTML, /Support \/ Exchange - Phone \/ WhatsApp/);
+  assert.equal(extra.tagName, 'details');
+  assert.match(extra.children[0].innerHTML, /Show 1 more number/);
+  assert.match(mail.innerHTML, /Mail/);
 });
 
 test('WhatsApp-only suppresses stale call actions and extensions remain separate', () => {
@@ -286,15 +324,38 @@ test('legacy international formats and mobile labels share one contact row', () 
   assert.equal(groups[0].records[0].value, '+919111553117');
 });
 
-test('only numeric policy terms are emphasized and the list is capped at five points', () => {
+test('only numeric policy terms are emphasized and the list is capped at four points', () => {
   const { context } = popup();
   const terms = ['Pickup fee ₹250.', 'Request within 48–72 hours.', 'Store credit only.',
     '100 rupees non-refundable.', 'Keep the original tags.', 'This sixth point is omitted.'];
   const html = vm.runInContext(`renderSummaryPoints(${JSON.stringify(terms.join('\n'))}, true)`, context);
-  assert.equal((html.match(/<li>/g) || []).length, 5);
+  assert.equal((html.match(/<li>/g) || []).length, 4);
   assert.match(html, /policy-emphasis">₹250<\/span>/);
   assert.match(html, /within <span class="policy-emphasis">48–72 hours<\/span>/);
   assert.match(html, /policy-emphasis">100 rupees<\/span> non-refundable/);
   assert.match(html, /<li>Store credit only\.<\/li>/);
-  assert.doesNotMatch(html, /sixth point/);
+  assert.doesNotMatch(html, /original tags|sixth point/);
+});
+
+test('one shared policy card follows both contact groups and links to each source once', () => {
+  const { context, element } = popup();
+  context.result = { analysis: {
+    contact_signals: { phone_numbers: ['+919111553117'], emails: ['support@example.com'] },
+    policies: Object.fromEntries(['return', 'exchange', 'refund'].map(kind => [kind, {
+      status: 'extracted', source_url: 'https://store.example/policy',
+      alternative_sources: [{ source_url: 'https://store.example/terms' }],
+    }])),
+    scan_status: { status: 'partial' },
+    policy_cards: [{ kinds: ['return', 'exchange', 'refund'], source_urls: ['https://store.example/policy'],
+      points: ['₹100 for returns.', 'Request within 72 hours.', 'Store credit for approved returns.', 'Keep the tags.'] }],
+  } };
+  vm.runInContext('renderSellerInsights(result)', context);
+  let [phone, mail, card, domain] = sellerRows(element);
+  assert.match(phone.innerHTML, /919111553117|91115/);
+  assert.match(mail.innerHTML, /support@example.com/);
+  assert.match(card.innerHTML, /Returns, Exchanges &amp; Refunds/);
+  assert.equal((card.innerHTML.match(/<li>/g) || []).length, 4);
+  assert.deepEqual(card.querySelector('.seller-actions').children.map(button => button.dataset.payload),
+    ['https://store.example/policy', 'https://store.example/terms']);
+  assert.match(domain.innerHTML, /Domain Registered To/);
 });

@@ -35,7 +35,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 
 let copiedButtonTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v6";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v8";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -53,8 +53,8 @@ const state = {
   activeScanUrl: "",
   lastAnalysis: null,
   sellerInsightsLoadedFor: "",
-  pendingExplanation: "",
-  aiSummaryRevealed: false,
+  aiSummary: null,
+  aiSummaryRequest: null,
 };
 
 const ICONS = {
@@ -269,20 +269,19 @@ function highlightPolicySummary(text) {
   return output + escapeHtml(text.slice(offset));
 }
 
-function renderSummaryPoints(summary, policy = false) {
+function summaryLines(summary) {
+  if (Array.isArray(summary)) return summary.filter(point => typeof point === "string");
   const rows = summary.split(/\r?\n|[●•▪◦]/);
   // Older responses supplied a single paragraph, sometimes with inline bullets.
-  const parts = rows.length > 1 ? rows : summary.split(/(?<!\bRs\.)(?<!\bNo\.)(?<=[.!?])\s+/i);
-  const points = [...new Set(parts.map(point => point.trim().replace(/^(?:[-*–—]\s+|\d+[.)]\s+)/, ""))
+  return rows.length > 1 ? rows : summary.split(/(?<!\bRs\.)(?<!\bNo\.)(?<=[.!?])\s+/i);
+}
+
+function renderSummaryPoints(summary, policy = false) {
+  const points = [...new Set(summaryLines(summary).map(point => point.trim().replace(/^(?:[-*–—]\s+|\d+[.)]\s+)/, ""))
     .filter(point => point && point.length <= 450))];
-  if (policy && !summary.includes("\n") && points.length > 5) {
-    const priority = point => /\b(?:fee|charge|cost|deduct)\w*\b|[₹$€£]/i.test(point) ? 0
-      : /\b(?:return|exchange) window\b|\bwithin\s+\d+/i.test(point) ? 1 : 2;
-    points.sort((first, second) => priority(first) - priority(second));
-  }
   if (!points.length) return "";
   const format = policy ? highlightPolicySummary : escapeHtml;
-  return `<ul class="summary-points">${points.slice(0, policy ? 5 : 3).map(point => `<li>${format(point)}</li>`).join("")}</ul>`;
+  return `<ul class="summary-points">${points.slice(0, policy ? 4 : 3).map(point => `<li>${format(point)}</li>`).join("")}</ul>`;
 }
 
 function formatPhoneWithFallback(value, fallbackValue) {
@@ -495,8 +494,8 @@ function setIdle() {
   collapseAiSummary();
   threatExpl.classList.add("hidden");
   explanationText.textContent = "";
-  state.pendingExplanation = "";
-  state.aiSummaryRevealed = false;
+  state.aiSummary = null;
+  state.aiSummaryRequest = null;
   collapseSellerInsights();
   sellerInsightsSection.classList.add("hidden");
   resultArea.classList.remove("compact");
@@ -518,8 +517,8 @@ function setLoading() {
   domainAgeCard.classList.add("hidden");
   collapseAiSummary();
   threatExpl.classList.add("hidden");
-  state.pendingExplanation = "";
-  state.aiSummaryRevealed = false;
+  state.aiSummary = null;
+  state.aiSummaryRequest = null;
   sellerInsightsSection.classList.add("hidden");
   collapseSellerInsights();
   sellerInsightsList.innerHTML = "";
@@ -573,8 +572,12 @@ function applyAnalysis(data, scannedUrl, options = {}) {
   state.lastScannedUrl = scannedUrl;
   state.sellerInsightsLoadedFor = "";
   sellerInsightsList.innerHTML = "";
-  state.pendingExplanation = data.explanation || "";
-  state.aiSummaryRevealed = false;
+  if (!options.keepAiSummary) {
+    state.aiSummary = null;
+    state.aiSummaryRequest = null;
+    collapseAiSummary();
+    explanationText.textContent = "";
+  }
 
   const threat = typeof data.threat_score === "number"
     ? data.threat_score
@@ -589,9 +592,6 @@ function applyAnalysis(data, scannedUrl, options = {}) {
   renderIndicators(scannedUrl, data, threat);
   renderChecklist(data.fired_rules || []);
 
-  // Keep AI summary section closed; store the text for lazy reveal
-  collapseAiSummary();
-  explanationText.textContent = "";
   threatExpl.classList.remove("hidden");
 
   if (data.contact_signals?.uses_ecommerce) {
@@ -651,10 +651,13 @@ async function postJsonCached(path, payload, ttlMs) {
   return { data, fromCache: false, savedAt: null };
 }
 
-function clearCachedResponse(path, payload) {
+function clearCachedResponses(path, url) {
   const cache = pruneExpiredCacheEntries(readScanCache());
-  const key = buildCacheKey(path, payload);
-  if (cache[key]) { delete cache[key]; writeScanCache(cache); }
+  const prefix = `${path}::${url}`;
+  for (const key of Object.keys(cache)) {
+    if (key === prefix || key.startsWith(`${prefix}::`)) delete cache[key];
+  }
+  writeScanCache(cache);
 }
 
 function getSelectedUrl() {
@@ -691,8 +694,7 @@ async function runScan() {
   urlDisplay.value = presentUrl(scanUrl);
 
   try {
-    clearCachedResponse("/predict", { url: scanUrl });
-    clearCachedResponse("/seller-insights", { url: scanUrl });
+    for (const path of ["/predict", "/seller-insights", "/explain"]) clearCachedResponses(path, scanUrl);
     const signals = await getTrustSignals(scanUrl);
     const response = await postJsonCached("/predict", { url: scanUrl, signals }, SCAN_CACHE_TTL_MS);
     if (state.scanRevision !== revision) return;
@@ -738,11 +740,12 @@ function badgeMarkup(tone, text) {
   return `<span class="seller-badge ${tone}">${tone === "safe" ? ICONS.check : ICONS.warning} ${text}</span>`;
 }
 
-function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, linkTitle, alternativeLinks = [], allowLink = true }) {
+function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge, metaHtml = "", copyValue, linkUrl, linkTitle, alternativeLinks = [], inlineActions = false, allowLink = true }) {
   const row = document.createElement("div");
   row.className = "seller-item";
   const plainValue = valueHtml ? "" : (value || "");
-  const isMissing = (!plainValue && !valueHtml) || plainValue === "Not found";
+  const isMissing = plainValue === "Not found";
+  const actionsMarkup = '<div class="seller-actions"></div>';
   row.innerHTML = `
     <div class="seller-icon ${iconTone}">${icon}</div>
     <div class="seller-main">
@@ -750,10 +753,11 @@ function createSellerItem({ icon, iconTone = "", label, value, valueHtml, badge,
         <div class="seller-label">${escapeHtml(label)}</div>
         ${badge ? badgeMarkup(badge.tone, badge.text) : ""}
         ${metaHtml}
+        ${inlineActions ? actionsMarkup : ""}
       </div>
-      <div class="seller-value ${isMissing ? "missing" : ""}">${valueHtml || escapeHtml(plainValue)}</div>
+      ${valueHtml || plainValue ? `<div class="seller-value ${isMissing ? "missing" : ""}">${valueHtml || escapeHtml(plainValue)}</div>` : ""}
     </div>
-    <div class="seller-actions"></div>`;
+    ${inlineActions ? "" : actionsMarkup}`;
   const actions = row.querySelector(".seller-actions");
   if (copyValue) actions.appendChild(makeIconButton("copy", copyValue));
   if (allowLink && linkUrl) actions.appendChild(makeIconButton("external", linkUrl, linkTitle || `Open ${label}`));
@@ -787,51 +791,32 @@ function groupSellerContacts(records) {
   });
 }
 
-function renderSellerInsights(response) {
-  const analysis = response.analysis || state.lastAnalysis;
-  const contact = analysis.contact_signals || {};
-  const meta = analysis.domain_metadata || {};
-  const policySummaries = analysis.policy_summaries || {};
+function appendContactGroup(rows, singular, plural) {
+  sellerInsightsList.appendChild(rows[0]);
+  if (rows.length === 1) return;
+  const other = document.createElement("details");
+  other.className = "seller-contact-more";
+  const toggle = document.createElement("summary");
+  const count = rows.length - 1;
+  toggle.innerHTML = `<span class="seller-contact-expand">Show ${count} more ${count === 1 ? singular : plural}</span>
+    <span class="seller-contact-collapse">Show fewer ${plural}</span>`;
+  other.appendChild(toggle);
+  for (const row of rows.slice(1)) other.appendChild(row);
+  sellerInsightsList.appendChild(other);
+}
 
-  sellerInsightsList.innerHTML = "";
-
-  const policyLabels = { return: "Return Policy", exchange: "Exchange Policy", refund: "Refund Policy",
-    shipping: "Shipping Policy", cancellation: "Cancellation Policy", privacy: "Privacy Policy", terms: "Terms & Conditions" };
-  for (const [kind, label] of Object.entries(policyLabels)) {
-    const document = analysis.policies?.[kind];
-    const legacyUrl = contact[kind === "terms" ? "terms_conditions_url" : `${kind}_policy_url`];
-    const linkUrl = document?.source_url || legacyUrl || "";
-    const needsSummary = ["return", "exchange", "refund"].includes(kind);
-    const summary = policySummaries[`${kind}_policy`];
-    const summaryHtml = needsSummary && typeof summary === "string" ? renderSummaryPoints(summary, true) : "";
-    const unverified = document && !["extracted", "structured_only"].includes(document.status);
-    let valueHtml = unverified
-      ? escapeHtml(linkUrl ? "Link found; policy content could not be verified." : "Not found in the pages checked.")
-      : needsSummary
-      ? (summaryHtml || escapeHtml(linkUrl
-        ? "Policy detected, but details couldn't be summarised."
-        : "Not found in the pages checked."))
-      : escapeHtml(linkUrl ? "Open policy page" : "Not found in the pages checked.");
-    const alternativeLinks = (document?.alternative_sources || []).filter(source => source.source_url && source.source_url !== linkUrl).slice(0, 3);
-    if (alternativeLinks.length) valueHtml += `<small class="seller-evidence-note">Other policy terms may differ.</small>`;
-    sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, valueHtml,
-      linkUrl, alternativeLinks }));
-  }
-
-  const contacts = contact.contacts || [
+function renderSellerPhones(contact) {
+  const contacts = contact.contacts?.length ? contact.contacts : [
     ...(contact.phone_numbers || []).map(value => ({ value, display: value, channel: "phone", purpose: "support" })),
     ...(contact.whatsapp_numbers || []).map(value => ({ value, display: value, channel: "whatsapp", purpose: "support" })),
   ];
-  if (!contacts.length) sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.phone, label: "Phone / WhatsApp", value: "No number found in the pages checked",
-  }));
-  for (const group of groupSellerContacts(contacts)) {
-    const records = group.records;
+  const rows = [];
+  for (const { records, whatsappOnly } of groupSellerContacts(contacts)) {
     if (!records.length) continue;
     const record = records[0];
     const channels = [...new Set(records.map(r => r.channel))];
     const roles = [...new Set(records.map(r => ({ exchange: "Exchange", returns: "Returns", sales: "Sales", support: "Support" }[r.purpose] || "Contact")))];
-    const channel = group.whatsappOnly ? "WhatsApp only" : channels.map(c => c === "whatsapp" ? "WhatsApp" : c === "fax" ? "Fax" : "Phone").join(" / ");
+    const channel = whatsappOnly ? "WhatsApp only" : channels.map(c => c === "whatsapp" ? "WhatsApp" : c === "fax" ? "Fax" : "Phone").join(" / ");
     const notes = [...new Set(records.map(r => r.hours).filter(Boolean))];
     if (records.some(r => r.conflict)) notes.push("Visible number differs from the site's phone link");
     if (records.some(r => r.validated === false)) notes.push("Country could not be confirmed");
@@ -851,36 +836,118 @@ function renderSellerInsights(response) {
       else if (channel === "phone" && /^\+\d+(;ext=\d+)?$/.test(target.value))
         actions.appendChild(makeIconButton("external", `tel:${target.value}`, "Call number"));
     }
-    sellerInsightsList.appendChild(row);
+    rows.push(row);
+  }
+  appendContactGroup(rows.length ? rows : [createSellerItem({
+    icon: ICONS.phone, label: "Phone / WhatsApp", value: "Not found",
+  })], "number", "numbers");
+}
+
+function renderSellerEmails(contact) {
+  const normaliseEmail = email => typeof email === "string" ? email.trim().toLowerCase() : "";
+  const records = contact.email_records || [];
+  const evaluations = contact.email_evaluations || [];
+  const emails = [...new Set([...(contact.emails || []), ...records.map(record => record.value)].map(normaliseEmail))]
+    .filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
+  const rows = emails.map(email => {
+    const evaluation = evaluations.find(item => normaliseEmail(item.email) === email);
+    const record = records.find(item => normaliseEmail(item.value) === email);
+    const label = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[record?.purpose] || "Mail";
+    return createSellerItem({
+      icon: ICONS.email, iconTone: evaluation?.tone === "safe" ? "safe" : "", label, value: email,
+      badge: evaluation ? { tone: evaluation.tone === "safe" ? "safe" : "warning", text: escapeHtml(evaluation.label) } : null,
+      copyValue: email,
+      linkUrl: `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`,
+      linkTitle: "Compose in Gmail",
+    });
+  });
+  appendContactGroup(rows.length ? rows : [createSellerItem({
+    icon: ICONS.email, label: "Mail", value: "Not found",
+  })], "email", "emails");
+}
+
+const commercePolicies = { return: "Returns", exchange: "Exchanges", refund: "Refunds" };
+
+function legacyPolicyCards(analysis) {
+  const groups = new Map();
+  for (const kind of Object.keys(commercePolicies)) {
+    const document = analysis.policies?.[kind];
+    if (document && !["extracted", "structured_only"].includes(document.status)) continue;
+    const summary = analysis.policy_summaries?.[`${kind}_policy`];
+    if (typeof summary !== "string" || !summary.trim()) continue;
+    const url = document?.source_url || analysis.contact_signals?.[`${kind}_policy_url`];
+    const group = groups.get(url || kind) || { kinds: [], points: [], source_urls: url ? [url] : [] };
+    group.kinds.push(kind);
+    group.points.push(...summaryLines(summary));
+    groups.set(url || kind, group);
+  }
+  return [...groups.values()].map(group => {
+    if (group.kinds.length === 1) return group;
+    const topics = [[], [], [], []];
+    for (const point of new Set(group.points)) {
+      const topic = /\b(?:fee|charge|deduct)\w*\b|[?$??]/i.test(point) ? 0
+        : /\b(?:return|exchange) window\b|\bwithin\s+\d+/i.test(point) ? 1
+        : /\b(?:store credit|original payment|refund method|bank account)\b/i.test(point) ? 2 : 3;
+      topics[topic].push(point);
+    }
+    return { ...group, points: topics.map(points => points.reduce((line, point) =>
+      line.length + point.length >= 450 ? line : [line, point].filter(Boolean).join(" "), "")).filter(Boolean) };
+  });
+}
+
+function renderSellerPolicies(analysis, contact) {
+  const labels = { return: "Return Policy", exchange: "Exchange Policy", refund: "Refund Policy",
+    shipping: "Shipping Policy", cancellation: "Cancellation Policy", privacy: "Privacy Policy", terms: "Terms & Conditions" };
+  const cards = Array.isArray(analysis.policy_cards) ? analysis.policy_cards : legacyPolicyCards(analysis);
+  const shown = new Set();
+  for (const card of cards) {
+    const kinds = (card.kinds || []).filter(kind => Object.hasOwn(commercePolicies, kind));
+    if (!kinds.length || !Array.isArray(card.points)) continue;
+    const label = kinds.length === 1 ? labels[kinds[0]]
+      : `${kinds.slice(0, -1).map(kind => commercePolicies[kind]).join(", ")} & ${commercePolicies[kinds.at(-1)]}`;
+    const urls = new Set(card.source_urls || []);
+    for (const kind of kinds) {
+      shown.add(kind);
+      const document = analysis.policies?.[kind];
+      if (document?.source_url) urls.add(document.source_url);
+      for (const source of document?.alternative_sources || []) {
+        if (source.source_url) urls.add(source.source_url);
+      }
+    }
+    const [linkUrl, ...otherUrls] = urls;
+    sellerInsightsList.appendChild(createSellerItem({
+      icon: ICONS.policy, label, valueHtml: renderSummaryPoints(card.points, true), linkUrl, inlineActions: true,
+      alternativeLinks: otherUrls.slice(0, 3).map(source_url => ({ source_url })),
+    }));
   }
 
-  const emails = [...new Set(contact.emails || [])].filter(email => /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(email));
-  for (const firstEmail of emails.length ? emails : ["Not found"]) {
-  const firstEmailEval = contact.email_evaluations?.find(item => item.email === firstEmail);
-  const emailRecord = contact.email_records?.find(item => item.value === firstEmail);
-  const emailLabel = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[emailRecord?.purpose] || "Mail";
-  sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.email, iconTone: firstEmailEval?.tone === "safe" ? "safe" : "", label: emailLabel,
-    value: firstEmail,
-    badge: firstEmailEval ? { tone: firstEmailEval.tone === "safe" ? "safe" : "warning", text: firstEmailEval.label } : null,
-    copyValue: firstEmail === "Not found" ? "" : firstEmail,
-    linkUrl: firstEmail === "Not found" ? "" : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(firstEmail)}`,
-    linkTitle: "Compose in Gmail",
-  }));
+  for (const [kind, label] of Object.entries(labels)) {
+    if (shown.has(kind)) continue;
+    const document = analysis.policies?.[kind];
+    const url = document?.source_url || contact[kind === "terms" ? "terms_conditions_url" : `${kind}_policy_url`];
+    if (!url) continue;
+    const alternativeLinks = (document?.alternative_sources || [])
+      .filter(source => source.source_url && source.source_url !== url).slice(0, 3);
+    sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, linkUrl: url, alternativeLinks, inlineActions: true }));
   }
+}
 
-  if (analysis.scan_status?.status === "partial") sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.policy, label: "Scan coverage", value: "Some pages were unavailable or could not be checked. Missing information is not proof that the store does not publish it.",
-  }));
+function renderSellerInsights(response) {
+  const analysis = response.analysis || state.lastAnalysis;
+  const contact = analysis.contact_signals || {};
+  const meta = analysis.domain_metadata || {};
+
+  sellerInsightsList.innerHTML = "";
+  renderSellerPhones(contact);
+  renderSellerEmails(contact);
+  renderSellerPolicies(analysis, contact);
 
   const registeredTo = meta.organization || meta.registrant_name || "Unknown";
   const location = meta.country ? ` (${meta.country})` : "";
   sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.whois, label: "Domain Registered To",
-    value: `${registeredTo}${location}`,
+    icon: ICONS.whois, label: "Domain Registered To", value: `${registeredTo}${location}`,
   }));
 
-  // Stagger seller items
   sellerInsightsList.querySelectorAll(".seller-item").forEach((el, i) => {
     el.style.animationDelay = `${i * 35}ms`;
   });
@@ -933,7 +1000,7 @@ async function toggleSellerInsights() {
     if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision) return;
 
     if (response.data.analysis) {
-      applyAnalysis(response.data.analysis, fetchUrl);
+      applyAnalysis(response.data.analysis, fetchUrl, { keepAiSummary: true });
       setCachedResponse("/predict", { url: fetchUrl }, response.data.analysis, SCAN_CACHE_TTL_MS);
       sellerInsightsBtn.classList.add("open");
       sellerInsightsBtn.setAttribute("aria-expanded", "true");
@@ -955,7 +1022,7 @@ async function toggleSellerInsights() {
   }
 }
 
-/* ── AI Summary toggle with typing animation ── */
+/* ── AI Summary ── */
 function collapseAiSummary() {
   if (aiSummaryBtn) {
     aiSummaryBtn.classList.remove("open");
@@ -967,7 +1034,27 @@ function collapseAiSummary() {
   }
 }
 
+function renderAiSummary(summary) {
+  const hostname = new URL(state.lastScannedUrl).hostname.replace(/^www\./, "");
+  const links = [];
+  for (const source of Array.isArray(summary.sources) ? summary.sources : []) {
+    if (!source || typeof source.label !== "string") continue;
+    try {
+      const url = new URL(source.url);
+      if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password
+          && url.hostname.replace(/^www\./, "") === hostname) {
+        links.push(`<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.label)}</a>`);
+      }
+    } catch { /* Skip malformed evidence links. */ }
+  }
+  const explanation = typeof summary.explanation === "string" ? summary.explanation.trim() : "";
+  const points = renderSummaryPoints(explanation || "No findings available.");
+  explanationText.innerHTML = points + (links.length
+    ? `<div class="explanation-sources" aria-label="Sources">${links.join("")}</div>` : "");
+}
+
 async function toggleAiSummary() {
+  if (!state.lastAnalysis || !state.lastScannedUrl) return;
   const willOpen = aiSummaryPanel.classList.contains("hidden");
   if (!willOpen) {
     collapseAiSummary();
@@ -980,42 +1067,28 @@ async function toggleAiSummary() {
   aiSummaryPanel.classList.remove("revealed");
   requestAnimationFrame(() => aiSummaryPanel.classList.add("revealed"));
 
-  if (state.aiSummaryRevealed && state.pendingExplanation) {
-    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
+  if (state.aiSummary) {
+    renderAiSummary(state.aiSummary);
     return;
   }
+  if (state.aiSummaryRequest) return;
 
-  if (state.pendingExplanation) {
-    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
-    state.aiSummaryRevealed = true;
-    return;
-  }
-
-  explanationText.textContent = "Generating AI Summary...";
-
-  const fetchUrl = state.lastScannedUrl;
-  const revision = state.scanRevision;
-  const analysis = state.lastAnalysis;
+  explanationText.textContent = "Checking public pages…";
+  const pending = { url: state.lastScannedUrl, revision: state.scanRevision };
+  state.aiSummaryRequest = pending;
+  const isCurrent = () => state.aiSummaryRequest === pending &&
+    state.lastScannedUrl === pending.url && state.scanRevision === pending.revision;
   try {
-    const payload = {
-      url: fetchUrl,
-      threat_score: state.lastAnalysis.threat_score,
-      rule_summary: state.lastAnalysis.rule_summary,
-      contact_signals: state.lastAnalysis.contact_signals,
-      domain_metadata: state.lastAnalysis.domain_metadata,
-      risky_categories: state.lastAnalysis.risky_categories || [],
-    };
-    const response = await postJsonCached("/explain", payload, SCAN_CACHE_TTL_MS);
-
-    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision) return;
-
-    if (state.lastAnalysis !== analysis) return;
-    state.pendingExplanation = response.data.explanation || "No explanation available.";
-    state.aiSummaryRevealed = true;
-    explanationText.innerHTML = renderSummaryPoints(state.pendingExplanation);
-  } catch (err) {
-    if (state.lastScannedUrl !== fetchUrl || state.scanRevision !== revision || state.lastAnalysis !== analysis) return;
-    explanationText.textContent = "Failed to generate AI summary.";
+    const signals = await getTrustSignals(pending.url);
+    if (!isCurrent()) return;
+    const response = await postJsonCached("/explain", { url: pending.url, signals }, SCAN_CACHE_TTL_MS);
+    if (!isCurrent()) return;
+    state.aiSummary = response.data;
+    renderAiSummary(state.aiSummary);
+  } catch {
+    if (isCurrent()) explanationText.textContent = "Failed to generate AI summary.";
+  } finally {
+    if (state.aiSummaryRequest === pending) state.aiSummaryRequest = null;
   }
 }
 
