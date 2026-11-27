@@ -103,8 +103,18 @@ function collectSellerSignals() {
     const visible = el => !el.closest("form, input, textarea, select, [contenteditable], [hidden], [aria-hidden='true']") && el.getClientRects().length > 0;
     const compact = el => (el.innerText || "").replace(/\s+/g, " ").trim();
     const anchors = [...document.querySelectorAll("a[href]")].filter(visible);
-    result.domLinks = anchors.filter(a => /contact|privacy|terms|refund|return|exchange|shipping|delivery|cancellation|support/i.test(a.href + " " + compact(a)))
-        .slice(0, 80).map(a => ({ href: a.href.slice(0, 1000), text: compact(a).slice(0, 150) }));
+    result.domLinks = anchors.filter(a => /contact|privacy|terms|refund|return|exchange|shipping|delivery|cancellation|support|\bfaqs?\b/i.test(a.href + " " + compact(a)))
+        .slice(0, 72).map(a => ({ href: a.href.slice(0, 1000), text: compact(a).slice(0, 150) }));
+    const catalogLinks = new Map();
+    for (const anchor of anchors) {
+        const target = new URL(anchor.href);
+        if (target.origin !== source.origin || !/\/(?:products?|collections?|cart|bag)(?:\/|$)/i.test(target.pathname)) continue;
+        target.search = "";
+        target.hash = "";
+        catalogLinks.set(target.href, compact(anchor).slice(0, 150));
+        if (catalogLinks.size === 8) break;
+    }
+    result.domLinks.push(...[...catalogLinks].map(([href, text]) => ({ href: href.slice(0, 1000), text })));
     const seen = new Set();
     for (const el of document.querySelectorAll("p, li, address, a, span")) {
         if (!visible(el) || el.closest("nav") || el.querySelector("p, li, address")) continue;

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { gunzipSync } = require('node:zlib');
 const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
 
@@ -109,6 +110,35 @@ test('oversized browser policy blocks explicitly mark evidence incomplete', () =
       querySelectorAll: () => [], querySelector: () => ({querySelectorAll: () => [longBlock]})}});
   vm.runInContext(fs.readFileSync(path.join(root, 'contentScript.js'), 'utf8'), context);
   assert.equal(vm.runInContext('collectSellerSignals().evidenceTruncated', context), true);
+});
+
+test('limited public evidence shows neither a safety score nor a safe label', () => {
+  const { context, element } = popup();
+  vm.runInContext(`applyAnalysis({verdict:'Limited Evidence', threat_score:0.18,
+    contact_signals:{scraped:false, uses_ecommerce:false}}, 'https://shop.example')`, context);
+  assert.equal(element('score-value').textContent, '--');
+  assert.equal(element('risk-text').textContent, 'LIMITED EVIDENCE');
+});
+
+const liveCaptures = process.env.THREATLENS_LIVE_CAPTURES;
+test('captured live Seller Insights render the verdict, contact actions and policy links', { skip: !liveCaptures }, () => {
+  const captures = fs.readdirSync(liveCaptures).filter(file => file.endsWith('.json.gz'));
+  assert.ok(captures.length > 0);
+  for (const file of captures) {
+    const record = JSON.parse(gunzipSync(fs.readFileSync(path.join(liveCaptures, file))));
+    const seller = record['/seller-insights'].response;
+    const { context, element } = popup();
+    context.applyAnalysis(seller.analysis, record.url);
+    context.renderSellerInsights(seller);
+    const { verdict, contact_signals: contact, policy_cards: cards } = seller.analysis;
+    assert.equal(element('risk-text').textContent, verdict.toUpperCase(), record.url);
+    if (verdict === 'Limited Evidence') assert.equal(element('score-value').textContent, '--', record.url);
+    const actions = sellerRows(element).flatMap(row => row.querySelector('.seller-actions').children)
+      .filter(button => button.dataset.kind === 'external').map(button => button.dataset.payload);
+    for (const email of contact.emails) assert.ok(actions.some(url =>
+      url.startsWith('https://mail.google.com/') && new URL(url).searchParams.get('to') === email), email);
+    for (const card of cards) for (const source of card.source_urls) assert.ok(actions.includes(source), source);
+  }
 });
 
 test('page signals cannot leak across tabs, origins, or full URLs', async () => {
@@ -357,5 +387,5 @@ test('one shared policy card follows both contact groups and links to each sourc
   assert.equal((card.innerHTML.match(/<li>/g) || []).length, 4);
   assert.deepEqual(card.querySelector('.seller-actions').children.map(button => button.dataset.payload),
     ['https://store.example/policy', 'https://store.example/terms']);
-  assert.match(domain.innerHTML, /Domain Registered To/);
+  assert.match(domain.innerHTML, /WHOIS Registrant/);
 });

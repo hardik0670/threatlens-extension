@@ -35,7 +35,7 @@ const scanBtnTextEl = scanBtn ? scanBtn.querySelector(".btn-label") : null;
 
 let copiedButtonTimer = null;
 const THEME_STORAGE_KEY = "threatlens-theme";
-const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v8";
+const SCAN_CACHE_STORAGE_KEY = "threatlens-scan-cache-seller-evidence-v9";
 const SCAN_CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -318,14 +318,15 @@ function animateRing(threat) {
 }
 
 function setVerdict(verdict, threat) {
-  const col = pal(threat);
+  const limited = verdict === "Limited Evidence";
+  const col = limited ? pal(0.4) : pal(threat);
   const label = verdict || (threat <= 0.3 ? "Safe" : threat <= 0.5 ? "Medium Risk" : "High Risk");
   riskText.textContent = label.toUpperCase();
   riskText.style.color = col.color;
   riskText.classList.remove("is-scanning");
   riskIcon.style.background = col.color;
   riskIcon.style.boxShadow = `0 0 6px ${col.shadow}`;
-  riskDescription.textContent = "";
+  riskDescription.textContent = limited ? "Requested page content could not be read." : "";
 }
 
 function renderDomainAge(days) {
@@ -350,11 +351,11 @@ function renderDomainReputationPill(days) {
   if (days == null || days < 0) {
     label = "Unknown"; tone = "warning";
   } else if (days >= 365) {
-    label = "Good"; tone = "safe";
+    label = "Established"; tone = "safe";
   } else if (days >= 90) {
-    label = "Risky"; tone = "warning";
+    label = "Recent"; tone = "warning";
   } else {
-    label = "Suspicious"; tone = "danger";
+    label = "New"; tone = "warning";
   }
   pill.textContent = label;
   pill.className = `domain-reputation-pill rep-${tone}`;
@@ -369,7 +370,9 @@ function renderIndicators(scanUrl, data, computedThreat) {
     isHttps
       ? indicatorRow("check", "", "SSL / HTTPS", "Encrypted")
       : indicatorRow("cross", "", "SSL / HTTPS", isHttp ? "Insecure HTTP" : "Not Found"),
-    threat <= 0.3
+    data.verdict === "Limited Evidence"
+      ? indicatorRow("warn", "", "Page Evidence", "Unavailable")
+      : threat <= 0.3
       ? indicatorRow("check", "", "Suspicious Signals", "None")
       : threat <= 0.5
         ? indicatorRow("warn", "", "Suspicious Signals", "Review")
@@ -586,7 +589,11 @@ function applyAnalysis(data, scannedUrl, options = {}) {
       : 0.5;
 
 
-  animateRing(threat);
+  animateRing(data.verdict === "Limited Evidence" ? 1 : threat);
+  if (data.verdict === "Limited Evidence") {
+    scoreEl.textContent = "--";
+    scoreEl.style.color = "var(--color-text-muted)";
+  }
   setVerdict(data.verdict ?? data.level, threat);
   renderDomainAge(data.domain_age_days ?? null);
   renderIndicators(scannedUrl, data, threat);
@@ -594,7 +601,7 @@ function applyAnalysis(data, scannedUrl, options = {}) {
 
   threatExpl.classList.remove("hidden");
 
-  if (data.contact_signals?.uses_ecommerce) {
+  if (data.contact_signals?.uses_ecommerce || data.contact_signals?.scraped === false) {
     sellerInsightsSection.classList.remove("hidden");
     // Set favicon to scanned website's favicon
     try {
@@ -815,7 +822,8 @@ function renderSellerPhones(contact) {
     if (!records.length) continue;
     const record = records[0];
     const channels = [...new Set(records.map(r => r.channel))];
-    const roles = [...new Set(records.map(r => ({ exchange: "Exchange", returns: "Returns", sales: "Sales", support: "Support" }[r.purpose] || "Contact")))];
+    const roles = [...new Set(records.map(r => ({ exchange: "Exchange", returns: "Returns", sales: "Sales",
+      partnerships: "Partnerships", support: "Support" }[r.purpose] || "Contact")))];
     const channel = whatsappOnly ? "WhatsApp only" : channels.map(c => c === "whatsapp" ? "WhatsApp" : c === "fax" ? "Fax" : "Phone").join(" / ");
     const notes = [...new Set(records.map(r => r.hours).filter(Boolean))];
     if (records.some(r => r.conflict)) notes.push("Visible number differs from the site's phone link");
@@ -852,10 +860,13 @@ function renderSellerEmails(contact) {
   const rows = emails.map(email => {
     const evaluation = evaluations.find(item => normaliseEmail(item.email) === email);
     const record = records.find(item => normaliseEmail(item.value) === email);
-    const label = { privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact" }[record?.purpose] || "Mail";
+    const label = {
+      privacy: "Mail - Privacy contact", grievance: "Mail - Grievance contact", press: "Mail - Press",
+      partnerships: "Mail - Partnerships", legal: "Mail - Legal", sales: "Mail - Sales", support: "Mail - Support",
+    }[record?.purpose] || "Mail";
     return createSellerItem({
       icon: ICONS.email, iconTone: evaluation?.tone === "safe" ? "safe" : "", label, value: email,
-      badge: evaluation ? { tone: evaluation.tone === "safe" ? "safe" : "warning", text: escapeHtml(evaluation.label) } : null,
+      badge: evaluation?.tone === "safe" ? { tone: "safe", text: escapeHtml(evaluation.label) } : null,
       copyValue: email,
       linkUrl: `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`,
       linkTitle: "Compose in Gmail",
@@ -928,7 +939,8 @@ function renderSellerPolicies(analysis, contact) {
     if (!url) continue;
     const alternativeLinks = (document?.alternative_sources || [])
       .filter(source => source.source_url && source.source_url !== url).slice(0, 3);
-    sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, linkUrl: url, alternativeLinks, inlineActions: true }));
+    const value = document?.status === "discovered" ? "Linked by store · contents unverified" : undefined;
+    sellerInsightsList.appendChild(createSellerItem({ icon: ICONS.policy, label, value, linkUrl: url, alternativeLinks, inlineActions: true }));
   }
 }
 
@@ -943,9 +955,9 @@ function renderSellerInsights(response) {
   renderSellerPolicies(analysis, contact);
 
   const registeredTo = meta.organization || meta.registrant_name || "Unknown";
-  const location = meta.country ? ` (${meta.country})` : "";
+  const location = meta.country && !meta.registrant_is_proxy ? ` (${meta.country})` : "";
   sellerInsightsList.appendChild(createSellerItem({
-    icon: ICONS.whois, label: "Domain Registered To", value: `${registeredTo}${location}`,
+    icon: ICONS.whois, label: meta.registrant_is_proxy ? "WHOIS Privacy Proxy" : "WHOIS Registrant", value: `${registeredTo}${location}`,
   }));
 
   sellerInsightsList.querySelectorAll(".seller-item").forEach((el, i) => {
